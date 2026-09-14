@@ -46,11 +46,29 @@ export class MissionHud {
     this.debrief.hidden = true;
     this.debrief.innerHTML = `<h2></h2><div class="medal" hidden></div><p class="debrief-detail"></p><dl></dl><div><button data-debrief="retry">Try again [Enter]</button><button data-debrief="watch">Look around</button></div>`;
     parent.appendChild(this.debrief);
+    // Compact (phone) HUD: a slim always-on strip plus a menu button that pulls the full panels up on demand, so the
+    // 3D view stays visible. Its buttons mirror the panel's launch and attitude aids — the only controls used in flight.
+    this.mini.className = 'mini-hud';
+    this.mini.innerHTML = `<button class="mini-menu" aria-label="Open flight menu">☰</button>
+      <div class="mini-body"><div class="mini-status"></div><div class="mini-cue"></div></div>
+      <div class="mini-actions">
+        <button data-mini="launch">LAUNCH</button>
+        <button data-mini-att="stabilize">HOLD</button><button data-mini-att="dock">DOCK</button><button data-mini-att="match">MATCH</button>
+      </div>`;
+    parent.appendChild(this.mini);
+    this.mini.querySelector('.mini-menu')!.addEventListener('click', () => document.body.classList.toggle('sheet-open'));
+    this.mini.querySelector<HTMLButtonElement>('[data-mini=launch]')!.onclick = () => {if (this.mission.launch()) this.onLaunch();};
+    this.mini.querySelectorAll<HTMLButtonElement>('[data-mini-att]').forEach(b => b.onclick = () => {this.mission.attitudeMode = b.dataset.miniAtt as AttitudeMode;});
+    // Tapping the dimmed backdrop (anywhere outside the panels) closes the menu.
+    parent.addEventListener('pointerdown', e => {
+      if (document.body.classList.contains('sheet-open') && !(e.target as HTMLElement).closest('.mission-panel, .nav-controls, .mini-hud')) document.body.classList.remove('sheet-open');
+    });
     this.debrief.querySelector<HTMLButtonElement>('[data-debrief=retry]')!.onclick = () => this.onReset();
     this.debrief.querySelector<HTMLButtonElement>('[data-debrief=watch]')!.onclick = () => {this.dismissed = true; this.debrief.hidden = true;};
   }
 
   readonly debrief = document.createElement('section');
+  readonly mini = document.createElement('div');
   private dismissed = false;
 
   /** End-of-flight card: what happened, the numbers that decided it, and a one-key retry. */
@@ -127,6 +145,16 @@ export class MissionHud {
     launch.className = m.windowBand;
     this.panel.querySelector('[data-action=wait]')!.textContent = m.countdown < 0 ? 'Next window' : 'Wait to T−30 s';
     this.panel.querySelectorAll<HTMLButtonElement>('[data-attitude]').forEach(b => b.classList.toggle('active', b.dataset.attitude === m.attitudeMode));
+    // Compact strip: status/countdown, the one-line cue, and either LAUNCH (pre-flight) or the attitude aids (in flight).
+    const statusEl = this.mini.querySelector<HTMLElement>('.mini-status')!;
+    statusEl.textContent = m.launched ? status : `T${m.countdown >= 0 ? '−' : '+'}${duration(m.countdown)}`;
+    statusEl.className = `mini-status ${m.launched ? band : m.windowBand}`;
+    const cueEl = this.mini.querySelector<HTMLElement>('.mini-cue')!;
+    cueEl.textContent = cue ? cue[0] : m.launched ? `ALT ${distance(altitudeAboveGround(s, m.env))} · V ${o.verticalSpeed.toFixed(0)} m/s` : '';
+    cueEl.className = `mini-cue ${cue ? cue[1] : ''}`;
+    const flying = m.launched && !m.result && s.status !== 'docked';
+    this.mini.querySelector<HTMLButtonElement>('[data-mini=launch]')!.hidden = m.launched;
+    this.mini.querySelectorAll<HTMLButtonElement>('[data-mini-att]').forEach(b => {b.hidden = !flying; b.classList.toggle('active', b.dataset.miniAtt === m.attitudeMode);});
     this.showDebrief();
   }
 }

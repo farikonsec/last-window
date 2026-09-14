@@ -47,6 +47,14 @@ export class GameAudio {
     return this.enabled;
   }
 
+  /**
+   * iOS Safari starts every AudioContext suspended and only resumes it from inside a real touch gesture, and a single
+   * pointerdown often isn't enough. Call this on every tap: it resumes a stalled context (silent when not needed).
+   */
+  resume() {
+    if (this.enabled && this.ctx && this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
+  }
+
   private build() {
     const ctx = new AudioContext();
     this.ctx = ctx;

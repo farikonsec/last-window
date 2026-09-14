@@ -420,7 +420,7 @@ hud.className = 'hud';
 app.appendChild(hud);
 hud.hidden = params.get('telemetry') !== '1';
 const flightHud = new MissionHud(app, mission);
-flightHud.onLaunch = () => {viewName = 'chase'; rig = makeRig(viewName); cameraSelect.value = viewName; warp = 1;};
+flightHud.onLaunch = () => {viewName = 'chase'; rig = makeRig(viewName); cameraSelect.value = viewName; warp = 1; document.body.classList.remove('sheet-open');};
 const touchUI = setupTouch({
   parent: app,
   press: (key, down) => document.body.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', {key, bubbles: true})),
@@ -433,6 +433,8 @@ let audioChosen = params.get('sound') === '0';
 const startAudio = () => {if (!audioChosen) {audioChosen = true; audio.toggle(true);}};
 addEventListener('pointerdown', startAudio, {once: true});
 addEventListener('keydown', e => {if (e.key.toLowerCase() !== 'p') startAudio();}, {once: true});
+// iOS keeps the context suspended until a gesture resumes it, and one tap often isn't enough: nudge it on every tap.
+for (const type of ['touchend', 'pointerup', 'click']) addEventListener(type, () => audio.resume(), {passive: true});
 controls.querySelector<HTMLButtonElement>('#sound')!.onclick = () => {audioChosen = true; audio.toggle();};
 const effects = new Effects();
 viewer.scene.add(effects.group);

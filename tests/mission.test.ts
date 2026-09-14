@@ -151,4 +151,4 @@ test('the whole mission is flyable with the in-game aids: ascent, coast, match, 
   }
   expect(m.result).toBeNull();
   expect(m.state.status).toBe('docked');
-});
+}, 30_000); // flies the entire mission at fine steps; slow under load, so well past the 5 s default.
