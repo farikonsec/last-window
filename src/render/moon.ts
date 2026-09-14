@@ -1,6 +1,6 @@
 import * as T from 'three';
 import {R_MOON} from '../sim/constants';
-import {exposure, globeGeometry, GLSL_COMMON} from './common';
+import {exposure, globeGeometry, GLSL_COMMON, GLSL_LUNAR} from './common';
 
 /** LOLA elevation grid, little-endian int16 metres, row 0 north, column 0 at 180 W. */
 export class LunarElevation {
@@ -85,6 +85,7 @@ export class MoonGlobe {
       fragmentShader: /* glsl */`
         #include <logdepthbuf_pars_fragment>
         ${GLSL_COMMON}
+        ${GLSL_LUNAR}
         uniform sampler2D colourMap; uniform sampler2D heightMap; uniform vec2 texel; uniform float radius;
         uniform mat3 fixedToWorld; uniform vec3 sunDir; uniform vec3 earthDir; uniform float earthshine;
         uniform float exposure; uniform float albedoScale; uniform vec4 ringCover; uniform float ringActive;
@@ -138,6 +139,28 @@ export class MoonGlobe {
           vec3 view = normalize(-vWorld);
 
           vec3 albedo = srgbToLinear(texture(colourMap, vUv).rgb) * albedoScale;
+          // Procedural relief and mottling so the global map is not a flat grey wash when seen from tens of km up.
+          // Body-fixed surface metres (seam at the far-side meridian, away from the playable area) drive the noise;
+          // every octave fades out once it drops below a pixel, so nothing shimmers, and the whole effect fades to a
+          // disc at orbital range where per-pixel detail is invisible anyway.
+          float dist = length(vWorld);
+          float detail = clamp((260000.0 - dist) / 150000.0, 0.0, 1.0);
+          if (detail > 0.0) {
+            vec2 lp = vec2(atan(up.y, up.x) * radius * max(cos(lat), 0.02), lat * radius);
+            float footprint = max(length(vec2(dFdx(lp.x), dFdy(lp.x))), length(vec2(dFdx(lp.y), dFdy(lp.y)))) + 1.0;
+            vec2 slope = vec2(0.0); float albedoNoise = 0.0;
+            float lambda = 1400.0, hAmp = 46.0, aAmp = 0.11;
+            for (int i = 0; i < 6; i++) {
+              float f = clamp((lambda / footprint - 2.5) / 5.0, 0.0, 1.0);
+              if (f <= 0.0) break;
+              vec3 nz = noised(lp / lambda + float(i) * 13.7);
+              slope += nz.yz * (hAmp / lambda) * f;
+              albedoNoise += (nz.x - 0.5) * aAmp * f;
+              lambda *= 0.5; hAmp *= 0.56; aAmp *= 0.62;
+            }
+            n = normalize(n - (fixedToWorld * east * slope.x + fixedToWorld * north * slope.y) * detail);
+            albedo *= 1.0 + albedoNoise * detail;
+          }
           float mu0 = dot(n, sunDir), mu = max(dot(n, view), 0.0);
           float g = degrees(acos(clamp(dot(sunDir, view), -1.0, 1.0)));
           float L = clamp(1.0 - 0.019 * g + 2.42e-4 * g * g - 1.46e-6 * g * g * g, 0.0, 1.0);
