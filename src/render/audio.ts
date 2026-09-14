@@ -45,6 +45,7 @@ export class GameAudio {
   private lastRcs = 0;
   private ended = false;
   private lastPhase = '';
+  private keepAlive: HTMLAudioElement | null = null;
 
   /** Must run inside a user gesture the first time (browser autoplay rules). */
   toggle(force?: boolean) {
@@ -52,21 +53,42 @@ export class GameAudio {
     if (want && !this.ctx) this.build();
     this.enabled = want;
     if (!this.ctx) return this.enabled;
-    if (want) this.ctx.resume().catch(() => {});
+    // Everything here runs synchronously inside the tap; iOS rejects audio started after an await.
+    if (want) this.unlockIOS(); else this.keepAlive?.pause();
     this.master.gain.setTargetAtTime(want ? 0.7 : 0, this.ctx.currentTime, 0.08);
     return this.enabled;
   }
 
   /**
-   * iOS Safari starts every AudioContext suspended and only resumes it from inside a real touch gesture, and a single
-   * pointerdown often isn't enough. Call this on every tap: it resumes a stalled context (silent when not needed).
+   * iPhone keeps Web Audio silent unless the context wakes inside the tap AND the page declares playback audio — the
+   * ring/silent switch otherwise mutes it. A silent looping media element declares that; a one-sample buffer wakes the
+   * context. Runs synchronously inside a gesture.
    */
+  private unlockIOS() {
+    const ctx = this.ctx!;
+    try {(navigator as unknown as {audioSession?: {type: string}}).audioSession!.type = 'playback';} catch {/* not Safari 16.4+ */}
+    if (!this.keepAlive) {
+      const rate = 8000, samples = rate / 2, buf = new ArrayBuffer(44 + samples), v = new DataView(buf);
+      const w = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+      w(0, 'RIFF'); v.setUint32(4, 36 + samples, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, 'data'); v.setUint32(40, samples, true);
+      for (let i = 0; i < samples; i++) v.setUint8(44 + i, 128);
+      const el = new Audio(URL.createObjectURL(new Blob([buf], {type: 'audio/wav'}))); el.loop = true; el.setAttribute('playsinline', ''); el.volume = 0.01;
+      this.keepAlive = el;
+    }
+    this.keepAlive.play().catch(() => {});
+    const b = ctx.createBuffer(1, 1, 22050), src = ctx.createBufferSource(); src.buffer = b; src.connect(ctx.destination); src.start(0);
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+  }
+
+  /** Call on every tap: iOS suspends the context after a lock/app-switch, so resume it and restart the keep-alive. */
   resume() {
-    if (this.enabled && this.ctx && this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
+    if (this.enabled && this.ctx && this.ctx.state !== 'running') {this.ctx.resume().catch(() => {}); this.keepAlive?.play().catch(() => {});}
   }
 
   private build() {
-    const ctx = new AudioContext();
+    const AC = window.AudioContext ?? (window as unknown as {webkitAudioContext: typeof AudioContext}).webkitAudioContext;
+    const ctx = new AC();
     this.ctx = ctx;
     this.master = ctx.createGain();
     this.master.gain.value = 0;
