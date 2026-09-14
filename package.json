@@ -1,0 +1,23 @@
+{
+  "name": "moon-ascent",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5181",
+    "build": "tsc --noEmit && vite build",
+    "test": "bun test",
+    "check": "bun test && bun run build",
+    "test:browser": "bun tests/browser-run.ts",
+    "shots": "bun tests/browser-run.ts --shots"
+  },
+  "dependencies": {
+    "astronomy-engine": "2.1.19",
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.185.4",
+    "typescript": "5.9.3",
+    "vite": "8.3.0"
+  }
+}

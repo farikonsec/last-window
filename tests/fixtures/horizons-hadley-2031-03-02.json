@@ -1,0 +1,8 @@
+{
+  "source": "JPL Horizons API (DE441), fetched 2026-09-14",
+  "query": "EPHEM_TYPE=OBSERVER CENTER=coord@301 COORD_TYPE=GEODETIC SITE_COORD='3.63,26.13,0' TLIST='2031-03-02 18:00' TIME_TYPE=UT QUANTITIES=4 ANG_FORMAT=DEG EXTRA_PREC=YES",
+  "epoch": "2031-03-02T18:00:00Z",
+  "site": {"lat": 26.13, "lon": 3.63},
+  "sun": {"azimuth": 97.846696876, "elevation": 18.929265297},
+  "earth": {"azimuth": 188.093179966, "elevation": 66.589855831}
+}
