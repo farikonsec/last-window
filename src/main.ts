@@ -39,6 +39,7 @@ const loader = new T.TextureLoader(textures);
 const sky = skyAt(new Date(params.get('epoch') ?? SCENARIO_EPOCH));
 let simTime = Number(params.get('t') ?? 0);
 let warp = 1;
+let autopilotOn = false;
 
 const [catalogue, elevation, regionHeights] = await Promise.all([
   fetch(assetUrl('data/stars-bsc5.f32')).then(r => r.arrayBuffer()).then(b => new Float32Array(b)),
@@ -137,7 +138,7 @@ if (ev) viewer.exposureSettings.mode = Number(ev);
 // ---------------------------------------------------------------------------------------------------------------
 // Views. Positions are Moon-centred EQJ metres (float64); the camera is re-based to the origin every frame.
 
-type ViewName = 'orbit' | 'site' | 'earth' | 'globe' | 'nightside' | 'limb' | 'hover' | 'cross' | 'rille' | 'low' | 'nadir' | 'pad' | 'apollo' | 'lander-up' | 'chase' | 'cockpit' | 'docking' | 'argo';
+type ViewName = 'orbit' | 'site' | 'globe' | 'nightside' | 'limb' | 'hover' | 'cross' | 'rille' | 'low' | 'nadir' | 'pad' | 'apollo' | 'lander-up' | 'chase' | 'cockpit' | 'docking' | 'argo';
 interface Rig {
   /** Camera position, EQJ metres from the Moon's centre. */
   position(): V3;
@@ -243,7 +244,6 @@ function makeRig(name: ViewName): LookRig {
     case 'lander-up': {const at = offset(KESTREL_PAD, 5, 7); return groundRig(at.lat, at.lon, 1.2, 210, 32, 75);}
     // Apollo 15: descent stage, bleached flag, and the rover parked 90 m east.
     case 'apollo': {const at = offset(APOLLO15_LM, 22, -20); return groundRig(at.lat, at.lon, 1.7, 322, -2, 55);}
-    case 'earth': return groundRig(HADLEY.lat, HADLEY.lon, 1.7, earthSite.azimuth, earthSite.elevation, 3.5);
     // Cross-sun: shadows fall sideways, the best view of relief.
     case 'cross': return groundRig(HADLEY.lat, HADLEY.lon, 1.7, 185, -8, 60);
     // On Hadley Rille's east rim, 1.7 km west of the site, looking across ~1.5 km to the far wall (300 m deep).
@@ -307,6 +307,7 @@ const surfacePosition = (lat: number, lon: number, height = 0): V3 =>
 const landforms = hadleyLandforms((lat, lon) => terrain.surveyed(lat, lon));
 const labelItems: LabelItem[] = HADLEY_HARDWARE.map(p => ({
   id: p.name, text: equipment[p.name][0], note: equipment[p.name][1], icon: '◇', kind: 'hardware', rank: 10,
+  hideDistance: p.name === 'kestrel',
   occluded: () => hardwareOccluded(p.name, surfacePosition(p.lat, p.lon, equipment[p.name][2])),
   range: 800, position: () => p.name === 'kestrel' && mission.launched ? add(apply(sky.mciToEqj, mission.state.r), scale(unit(apply(sky.mciToEqj, mission.state.r)), 7)) : surfacePosition(p.lat, p.lon, equipment[p.name][2]),
 }));
@@ -330,12 +331,19 @@ const controls = document.createElement('nav');
 controls.className = 'nav-controls';
 controls.setAttribute('aria-label', 'Surface navigation');
 controls.innerHTML = `<strong>LAST WINDOW <small>HADLEY EXPEDITION / 2031</small></strong>
-  <div><select aria-label="Camera view" id="camera-view">${['pad','chase','cockpit','docking','argo','apollo','site','rille','earth','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
-  <button id="label-mode">Labels: smart [L]</button><button id="map-mode">Map: local [M]</button><button id="sound">Sound: off [P]</button></div>
+  <div><select aria-label="Camera view" id="camera-view">${['pad','chase','cockpit','docking','argo','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
+  <button id="label-mode">Labels: smart [L]</button><button id="map-mode">Map: local [M]</button><button id="sound">Sound: off [P]</button><button id="autopilot">Autopilot: off [Y]</button></div>
   <select aria-label="Inspect equipment" id="inspect-equipment"><option value="">Inspect equipment…</option>${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</select>`;
 app.appendChild(controls);
 const cameraSelect = controls.querySelector<HTMLSelectElement>('#camera-view')!;
 cameraSelect.value = viewName;
+const autopilotBtn = controls.querySelector<HTMLButtonElement>('#autopilot')!;
+function toggleAutopilot(on = !autopilotOn) {
+  autopilotOn = on;
+  autopilotBtn.classList.toggle('view-active', on);
+  if (on && (viewName === 'pad' || viewName === 'site' || viewName === 'apollo')) {viewName = 'chase'; rig = makeRig(viewName); cameraSelect.value = viewName;}
+}
+autopilotBtn.onclick = () => toggleAutopilot();
 cameraSelect.onchange = () => {viewName = cameraSelect.value as ViewName; rig = makeRig(viewName);};
 const changeLabels = () => {labels.mode = labels.mode === 'smart' ? 'all' : labels.mode === 'all' ? 'off' : 'smart';};
 controls.querySelector<HTMLButtonElement>('#label-mode')!.onclick = changeLabels;
@@ -398,12 +406,13 @@ addEventListener('keydown', e => {
   }
   if (e.key === 'Enter' && !flightHud.debrief.hidden) flightHud.onReset();
   if (e.key.toLowerCase() === 'p') {audioChosen = true; audio.toggle();}
+  if (e.key.toLowerCase() === 'y') toggleAutopilot();
   held.add(e.key.toLowerCase());
   if (e.key === '[') warp = Math.max(1, warp / 10);
   if (e.key === ']') warp = Math.min(100, warp * 10);
   if (e.key === 'x') stars.mode = stars.mode === 'real' ? 'bright' : stars.mode === 'bright' ? 'off' : 'real';
   if (e.key === 'h') hud.hidden = !hud.hidden;
-  const views: ViewName[] = ['pad', 'apollo', 'site', 'rille', 'earth', 'lander-up', 'hover', 'orbit', 'globe'];
+  const views: ViewName[] = ['pad', 'apollo', 'site', 'rille', 'lander-up', 'hover', 'orbit', 'globe'];
   const index = Number(e.key) - 1;
   if (index >= 0 && index < views.length) {viewName = views[index]; rig = makeRig(viewName);}
 });
@@ -563,7 +572,9 @@ function place(realDt: number) {
   effects.settleDebris(groundAt);
   viewer.exposureCap = brightBodyCap(sunPos, earthPos);
   const sunHeight = terrainFrame.sunDir.dot(localUp);
-  viewer.surfaceExposure = viewName === 'argo' ? 0.42
+  // ARGO cam: hold a fixed exposure only when the mothership is sunlit (else it reads as a black silhouette); on the
+  // night side let auto-exposure lift the earthshine-lit scene instead of pinning it dark.
+  viewer.surfaceExposure = viewName === 'argo' ? (sunlitAt(mission.argo.r, sunPos) ? 0.6 : null)
     : rings.altitude < 2500 && toThree(forward).dot(localUp) < 0.45 && sunHeight > 0.02
       ? 0.18 / (0.12 * sunHeight + 0.015) : null;
   viewer.render(realDt);
@@ -630,9 +641,40 @@ function loop(now: number) {
   requestAnimationFrame(loop);
 }
 
+/**
+ * Full autopilot: launches in the window, flies the guided ascent, coasts to apoapsis (with time-warp), matches ARGO's
+ * velocity, then flies the RCS cue to a soft dock. It reuses the exact aids a player has, so it proves the game is
+ * winnable and lets someone just watch. Returns the target warp for this frame.
+ */
+function stepAutopilot(): number {
+  const m = mission;
+  if (m.result || m.state.status === 'docked') return 1;
+  if (!m.launched) {
+    // Fast-forward toward the window, easing the warp down so we don't jump past the few-second green band.
+    if (m.countdown < -5) {m.waitForWindow(); return 1;} // missed it: line up the next window
+    if (m.countdown > 90) return 100;
+    if (m.countdown > 12) return 10;
+    if (m.windowBand === 'green') {if (m.launch()) flightHud.onLaunch();}
+    return 1;
+  }
+  const o = m.summary;
+  if (o.periapsisAltitude < 10_000 && m.guidance.phase !== 'cutoff') {m.assisted = true; return 1;} // guided ascent
+  if (m.assisted) {m.assisted = false; m.throttle = 0; m.attitudeMode = 'stabilize';}               // just reached orbit
+  if (o.verticalSpeed > 0 && m.range > 4000) return m.timeToApoapsis > 400 ? 100 : 5;                // coast to apoapsis
+  if (len(m.relativeVelocity) > 0.35 && m.dockingRange > 300) {                                      // match velocity
+    m.attitudeMode = 'match';
+    const aligned = dot(rotate(m.state.q, [0, 1, 0]), unit(sub(m.argo.v, m.state.v))) > 0.995;
+    m.throttle = aligned ? Math.min(1, len(m.relativeVelocity) / 12) : 0;
+    return 1;
+  }
+  m.throttle = 0; m.attitudeMode = 'dock'; m.translation = m.translationCue.keys;                    // fly the dock cue
+  return 1;
+}
+
 /** One game frame: input, fixed-step physics, effects, audio, HUD, render. Tests drive it directly. */
 function tick(realDt: number, now: number, render = true) {
-  if (mission.launched) {
+  if (autopilotOn) warp = stepAutopilot();
+  else if (mission.launched) {
     if (held.has('arrowup')) mission.throttle = Math.min(1, mission.throttle + realDt * 0.35);
     if (held.has('arrowdown')) mission.throttle = Math.max(0, mission.throttle - realDt * 0.35);
     mission.rotation = [(held.has('i') ? 1 : 0) - (held.has('k') ? 1 : 0), (held.has('j') ? 1 : 0) - (held.has('l') ? 1 : 0), (held.has('u') ? 1 : 0) - (held.has('o') ? 1 : 0)];
@@ -670,6 +712,7 @@ function tick(realDt: number, now: number, render = true) {
   audio.update({phase: mission.phase, throttle: mission.launched && !mission.result ? actuatorsNow.throttle : 0,
     rcsActive: mission.launched && !mission.result && [...actuatorsNow.rotate, ...actuatorsNow.translate].some(x => Math.abs(x) > 0.2), warning});
   controls.querySelector('#sound')!.textContent = `Sound: ${audio.enabled ? 'on' : 'off'} [P]`;
+  autopilotBtn.textContent = `Autopilot: ${autopilotOn ? 'on' : 'off'} [Y]`;
   const geo = (r: V3, t: number) => {const p = unit(inertialToBody(r, t)); return {lat: Math.asin(p[2]) * 180 / Math.PI, lon: Math.atan2(p[1], p[0]) * 180 / Math.PI};};
   Object.assign(argoMarker, geo(mission.argo.r, simTime));
   const kestrelMarker = markers.find(p => p.id === 'kestrel')!;

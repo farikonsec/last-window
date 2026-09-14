@@ -15,6 +15,8 @@ export interface LabelItem {
   position: () => V3;
   /** Distance beyond which `smart` mode hides it, metres. */
   range: number;
+  /** Your own craft: the readout would just be the fixed camera-orbit distance, so suppress it. */
+  hideDistance?: boolean;
   occluded?: () => boolean;
 }
 
@@ -75,7 +77,7 @@ export class LabelLayer {
       placed.push(box);
       el.style.display = '';
       el.style.transform = `translate(${Math.max(8, Math.min(width - w - 8, c.x)).toFixed(1)}px, ${c.y.toFixed(1)}px)`;
-      el.querySelector('span')!.textContent = formatDistance(c.distance);
+      el.querySelector('span')!.textContent = c.item.hideDistance ? '' : formatDistance(c.distance);
     }
   }
 }
