@@ -89,6 +89,25 @@ export class Viewer {
     this.composer.render(realDt);
   }
 
+  /**
+   * Picture-in-picture: render the scene again from a second camera into a scissored corner of the canvas, on top of
+   * the main image. Skips bloom (a small inset does not need it) but keeps ACES tone mapping and the shared exposure.
+   * Rect is in CSS pixels from the top-left; the scene must already be placed for this frame's floating origin.
+   */
+  renderInset(camera: T.PerspectiveCamera, xCss: number, yCss: number, wCss: number, hCss: number) {
+    const r = this.renderer, dpr = r.getPixelRatio(), h = r.domElement.height;
+    const x = xCss * dpr, w = wCss * dpr, hh = hCss * dpr, y = h - (yCss + hCss) * dpr; // WebGL y is bottom-up
+    camera.aspect = wCss / hCss; camera.updateProjectionMatrix();
+    r.autoClear = false;
+    r.setScissorTest(true);
+    r.setScissor(x, y, w, hh); r.setViewport(x, y, w, hh);
+    r.clear(true, true, false);
+    r.render(this.scene, camera);
+    r.setScissorTest(false);
+    r.setViewport(0, 0, r.domElement.width, h);
+    r.autoClear = true;
+  }
+
   /** Luminance statistics of the current view at the current exposure (for auto-exposure and tests). */
   measure() {
     const previousTarget = this.renderer.getRenderTarget();

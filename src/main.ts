@@ -472,6 +472,14 @@ cockpitHud.innerHTML = `<div class="ck-reticle"></div><div class="ck-prograde"><
   <div class="ck-status" data-ck="status"></div>`;
 app.appendChild(cockpitHud);
 
+// ARGO picture-in-picture: a small live camera on the mothership that appears once you are within a few km, so you can
+// watch it during the approach without leaving your flight camera.
+const argoPip = document.createElement('div');
+argoPip.className = 'argo-pip';
+argoPip.innerHTML = '<b>◇ ARGO · MOTHERSHIP</b><span></span>';
+app.appendChild(argoPip);
+const insetCam = new T.PerspectiveCamera(45, 1.6, 0.1, 1e11);
+
 // ---------------------------------------------------------------------------------------------------------------
 // Frame
 
@@ -588,8 +596,10 @@ function place(realDt: number) {
   const sunHeight = terrainFrame.sunDir.dot(localUp);
   // ARGO cam: hold a fixed exposure only when the mothership is sunlit (else it reads as a black silhouette); on the
   // night side let auto-exposure lift the earthshine-lit scene instead of pinning it dark.
+  // Pin exposure to the sunlit-surface brightness whenever the lit Moon fills much of the frame (any altitude up to
+  // where it shrinks to a disc), so the surrounding black sky can't pull auto-exposure up and blow the surface white.
   viewer.surfaceExposure = viewName === 'argo' ? (sunlitAt(mission.argo.r, sunPos) ? 0.6 : null)
-    : rings.altitude < 2500 && toThree(forward).dot(localUp) < 0.45 && sunHeight > 0.02
+    : len(cameraEqj) < R_MOON * 1.5 && toThree(forward).dot(localUp) < 0.55 && sunHeight > 0.02
       ? 0.18 / (0.12 * sunHeight + 0.015) : null;
   viewer.render(realDt);
   dockingSight.hidden = viewName !== 'docking';
@@ -601,6 +611,21 @@ function place(realDt: number) {
     dockingSight.querySelector('span')!.textContent = `ARGO PORT  ${mission.dockingRange.toFixed(1)} m  ${approach.rangeRate.toFixed(2)} m/s`;
     dockingSight.querySelector('b')!.textContent = mission.captureRemaining > 0 ? `SOFT CAPTURE · LATCH ${mission.captureRemaining.toFixed(1)} s`
       : mission.state.status === 'docked' ? 'HARD DOCK · PRESSURE SEAL' : `BRAKE LIMIT ${mission.brakingLimit.toFixed(2)} m/s · RCS ${rcsKeys(mission.translationCue.keys)}`;
+  }
+  // ARGO picture-in-picture: draw once you are within 8 km, unless the current camera already frames ARGO.
+  const showPip = mission.launched && !mission.result && mission.dockingRange < 8000
+    && viewName !== 'argo' && viewName !== 'docking' && innerWidth >= 820;
+  argoPip.hidden = !showPip;
+  if (showPip) {
+    const w = Math.min(300, innerWidth * 0.26), h = w * 0.62, x = innerWidth - w - 16, y = 74;
+    const argoEqj = apply(sky.mciToEqj, mission.argo.r), upv = unit(argoEqj), along = unit(apply(sky.mciToEqj, mission.argo.v));
+    const camPos = add(add(argoEqj, scale(upv, 34)), scale(along, -78));
+    insetCam.position.copy(toThree(sub(camPos, cameraEqj)));
+    insetCam.up.copy(toThree(upv));
+    insetCam.lookAt(toThree(sub(argoEqj, cameraEqj)));
+    viewer.renderInset(insetCam, x, y, w, h);
+    argoPip.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+    argoPip.querySelector('span')!.textContent = `${mission.dockingRange.toFixed(0)} m`;
   }
   cockpitHud.hidden = viewName !== 'cockpit';
   if (!cockpitHud.hidden) {

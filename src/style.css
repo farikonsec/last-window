@@ -72,6 +72,11 @@ button:focus-visible, select:focus-visible { outline: 2px solid #8fe8ed; outline
 .debrief-detail { margin: 0 0 12px; color: #aac0c9; }
 .debrief dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0 0 16px; }.debrief dt { color: #7f98a4; }.debrief dd { margin: 0; }
 .debrief div { display: flex; gap: 8px; }.debrief button { flex: 1; padding: 8px; }
+/* ARGO picture-in-picture: a frame drawn over the live inset the renderer paints into this rectangle. */
+.argo-pip { position: fixed; z-index: 6; pointer-events: none; box-sizing: border-box; border: 1px solid #91efc366; border-radius: 8px; box-shadow: 0 0 0 1px #0009, 0 6px 20px #0008; }
+.argo-pip b { position: absolute; top: 6px; left: 9px; font: 700 10px ui-monospace, monospace; letter-spacing: 1px; color: #91efc3; text-shadow: 0 1px 3px #000; }
+.argo-pip span { position: absolute; bottom: 6px; right: 9px; font: 600 11px ui-monospace, monospace; color: #dff7ef; text-shadow: 0 1px 3px #000; }
+
 /* Cockpit heads-up instruments: corner gauges, a fixed nose reticle and a prograde marker. */
 .cockpit-hud { position: fixed; inset: 0; z-index: 4; pointer-events: none; font: 11px ui-monospace, Menlo, monospace; color: #a8f6e3; }
 .cockpit-hud .ck { position: absolute; padding: 8px 10px; background: linear-gradient(#0a1016aa, #0a101655); border: 1px solid #a8f6e333; border-radius: 8px; min-width: 92px; }
