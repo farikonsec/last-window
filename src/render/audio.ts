@@ -1,7 +1,7 @@
 /**
  * All game sound is synthesised with Web Audio: no samples, no licences.
- * - Music: a calm, hopeful ambient score (warm triangle/sine pads through C–G–Am–F, a soft bell melody, sub bass).
- *   Tempo and density lift a little while climbing or docked; it ducks during warnings and stops dead on a failure.
+ * - Music: Beethoven's "Ode to Joy" (public domain) as a warm bell melody over a soft C/G drone, lifting a little
+ *   while climbing or docked; it ducks during warnings and stops dead on a failure.
  * - Cabin sounds: engine rumble heard through the structure (there is no sound in vacuum), a soft RCS hiss.
  * - Caution and warning: amber two-tone chirp, red master alarm.
  * - Events: soft-capture clunk, docking chime (rising major arpeggio), impact thud followed by radio static.
@@ -15,11 +15,16 @@ export interface AudioFrame {
   warning: Warning;
 }
 
-// A gentle, hopeful progression: C – G – Am – F, each a warm major/minor triad (root, third, fifth as MIDI notes).
-const CHORDS = [[48, 55, 64, 67], [43, 55, 62, 67], [45, 57, 64, 69], [41, 53, 60, 65]];
-// A sparse C-major-pentatonic bell melody drifting over the pads.
-const MELODY = [67, 72, 76, 74, 72, 69, 72, 76, 79, 76, 72, 74, 69, 67, 72, 74];
 const midi = (n: number) => 440 * 2 ** ((n - 69) / 12);
+
+// Beethoven, "Ode to Joy" (Symphony No. 9, public domain) as [MIDI note, beats]; the recognisable, hopeful main
+// theme. A soft C/G drone underneath keeps it warm without fighting the diatonic melody.
+const ODE: [number, number][] = [
+  [64, 1], [64, 1], [65, 1], [67, 1], [67, 1], [65, 1], [64, 1], [62, 1], [60, 1], [60, 1], [62, 1], [64, 1], [64, 1.5], [62, 0.5], [62, 2],
+  [64, 1], [64, 1], [65, 1], [67, 1], [67, 1], [65, 1], [64, 1], [62, 1], [60, 1], [60, 1], [62, 1], [64, 1], [62, 1.5], [60, 0.5], [60, 2],
+  [62, 1], [62, 1], [64, 1], [60, 1], [62, 1], [64, 0.5], [65, 0.5], [64, 1], [60, 1], [62, 1], [64, 0.5], [65, 0.5], [64, 1], [62, 1], [60, 1], [62, 1], [55, 2],
+  [64, 1], [64, 1], [65, 1], [67, 1], [67, 1], [65, 1], [64, 1], [62, 1], [60, 1], [60, 1], [62, 1], [64, 1], [62, 1.5], [60, 0.5], [60, 2],
+];
 
 export class GameAudio {
   enabled = false;
@@ -33,6 +38,9 @@ export class GameAudio {
   private noise!: AudioBuffer;
   private step = 0;
   private nextStep = 0;
+  private melodyAt = 0;
+  private melodyI = 0;
+  private beat = 0;
   private lastChirp = 0;
   private lastRcs = 0;
   private ended = false;
@@ -152,28 +160,31 @@ export class GameAudio {
   }
 
   /**
-   * A calm, hopeful ambient score, not chiptune techno: warm sustained pads move through C–G–Am–F, a soft sine bell
-   * melody drifts over them, and a gentle sub bass marks the root. Motion picks up a little while climbing or docked,
-   * but nothing is harsh — no noise percussion, no square-wave lead.
+   * The theme is "Ode to Joy", played as a warm bell melody over a soft C/G drone and sub bass. Tempo and fullness lift
+   * a little while climbing or docked. Nothing harsh; it ducks during warnings and stops on a failure.
    */
   private sequence(phase: string, now: number) {
-    const bpm = phase === 'ascent' ? 96 : phase === 'docked' ? 100 : 84;
-    const beat = 60 / bpm;
-    const step = beat / 2;                       // an eighth-note grid
+    const bpm = phase === 'ascent' ? 104 : phase === 'docked' ? 112 : 92;
+    this.beat = 60 / bpm;
     const busy = phase === 'ascent' || phase === 'docked';
-    while (this.nextStep < now + 0.15) {
+    // Drone/bass on a two-beat grid so the harmony is always present under the tune.
+    while (this.nextStep < now + 0.2) {
       const t = Math.max(this.nextStep, now), s = this.step++;
-      const barLen = 8;                          // eighth-notes per bar
-      const bar = Math.floor(s / barLen) % 4, inBar = s % barLen, chord = CHORDS[bar];
-      // Warm pad chord: swell in at the top of each bar and hold across it.
-      if (inBar === 0) for (const [i, note] of chord.entries()) this.pad(midi(note), t, beat * 3.6, i === 0 ? 0.05 : 0.035, i < 2 ? 'triangle' : 'sine', this.music);
-      // Sub bass on the root, once (twice a bar when busy).
-      if (inBar === 0 || (busy && inBar === 4)) this.pad(midi(chord[0] - 12), t, beat * 1.8, 0.09, 'sine', this.music);
-      // Sparse bell melody: every other eighth when parked/coasting, most eighths when busy.
-      if (busy ? inBar % 2 === 0 : inBar % 4 === 0) this.tone(midi(MELODY[s % MELODY.length]), t, step * 1.6, phase === 'terminal' ? 0.03 : 0.05, 'sine', this.music);
-      // A soft high sparkle to lift the fourth bar when climbing or docked.
-      if (busy && bar === 3 && inBar === 0) this.tone(midi(chord[2] + 12), t, beat * 2.4, 0.03, 'triangle', this.music);
-      this.nextStep = t + step;
+      const fifth = s % 2 === 0; // alternate C and G roots
+      this.pad(midi(fifth ? 48 : 43), t, this.beat * 2.2, 0.06, 'sine', this.music);         // sub bass
+      this.pad(midi(fifth ? 60 : 62), t, this.beat * 2.4, 0.03, 'triangle', this.music);      // soft pad
+      this.pad(midi(fifth ? 67 : 67), t, this.beat * 2.4, 0.022, 'sine', this.music);         // fifth
+      this.nextStep = t + this.beat * 2;
+    }
+    // Melody: schedule the next few Ode-to-Joy notes as their time comes up.
+    if (this.melodyAt < now - 1) this.melodyAt = now + 0.1;
+    while (this.melodyAt < now + 0.2) {
+      const [note, beats] = ODE[this.melodyI % ODE.length];
+      const dur = beats * this.beat;
+      this.tone(midi(note), Math.max(this.melodyAt, now), dur * 0.92, busy ? 0.09 : 0.07, 'triangle', this.music);
+      if (busy) this.tone(midi(note + 12), Math.max(this.melodyAt, now), dur * 0.5, 0.02, 'sine', this.music); // faint octave sparkle
+      this.melodyAt += dur;
+      this.melodyI++;
     }
   }
 }

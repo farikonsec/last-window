@@ -104,6 +104,8 @@ export function hardwareMaterial(source: T.MeshStandardMaterial, shadows: SunSha
         }
         // Emissive lights and lit windows: glTF emissive strength scaled into scene radiance.
         radiance += emissiveColour * 0.05;
+        // A faint ambient floor (deep-space starlight and scattered fill) so a backlit hull never reads as pure black.
+        radiance += albedo * 0.02;
         gl_FragColor = vec4(radiance * exposure, 1.0);
       }`,
   });

@@ -228,13 +228,17 @@ function makeRig(name: ViewName): LookRig {
         look: () => ({forward: body([0, 0, 1]), up: body([0, 1, 0])})};
     }
     case 'argo': {
+      // Free orbit around ARGO: drag to circle it, wheel to zoom, so you can inspect the mothership from any angle.
       const craft = () => apply(sky.mciToEqj, mission.argo.r);
       const up = () => unit(craft());
-      const along = () => unit(apply(sky.mciToEqj, mission.argo.v));
-      const pos = () => add(add(craft(), scale(up(), 48)), scale(along(), -100));
-      const r = lookRig(pos, up, 90, -24, 60);
-      r.look = () => ({forward: sub(craft(), pos()), up: up()});
-      return r;
+      const base = lookRig(() => craft(), up, 90, -18, 55);
+      const along = unit(apply(sky.mciToEqj, mission.argo.v));
+      base.az = toAzEl(localFrame(up()), along).az + 20;
+      const rig: LookRig = {...base, fov: 55,
+        position() {const f = localFrame(up()); return sub(craft(), scale(fromAzEl(f, rig.az, rig.el), argoCamDistance));},
+        look() {const f = localFrame(up()); return {forward: fromAzEl(f, rig.az, rig.el), up: fromAzEl(f, rig.az, rig.el + 90)};},
+      };
+      return rig;
     }
     // Standing at the landing site, eye height, looking west down-sun toward Hadley Rille: long shadows run away.
     case 'site': return groundRig(HADLEY.lat, HADLEY.lon, 1.7, 262, -4, 70);
@@ -278,6 +282,7 @@ function makeRig(name: ViewName): LookRig {
 }
 
 let chaseDistance = 30;
+let argoCamDistance = 120;
 let viewName = (params.get('view') as ViewName) ?? 'pad';
 if (params.get('scenario') === 'ascent') viewName = 'chase';
 if (params.get('scenario') === 'terminal' || params.get('scenario') === 'docking') viewName = 'docking';
@@ -386,6 +391,7 @@ addEventListener('pointermove', e => {
 viewer.renderer.domElement.addEventListener('wheel', e => {
   e.preventDefault();
   if (viewName === 'chase') chaseDistance = Math.max(8, Math.min(2000, chaseDistance * Math.exp(e.deltaY * 0.001)));
+  if (viewName === 'argo') argoCamDistance = Math.max(25, Math.min(2000, argoCamDistance * Math.exp(e.deltaY * 0.001)));
   else rig.fov = Math.max(0.5, Math.min(100, rig.fov * Math.exp(e.deltaY * 0.001)));
 }, {passive: false});
 const held = new Set<string>();
