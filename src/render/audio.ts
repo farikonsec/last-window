@@ -1,8 +1,8 @@
 /**
  * All game sound is synthesised with Web Audio: no samples, no licences.
- * - Music: an upbeat 8-bit techno sequencer (square/pulse lead, triangle bass, noise hats, sine kick). Tempo and
- *   density follow the flight phase; it ducks during warnings and stops dead on a failure.
- * - Cabin sounds: engine rumble heard through the structure (there is no sound in vacuum), RCS thumps.
+ * - Music: a calm, hopeful ambient score (warm triangle/sine pads through C–G–Am–F, a soft bell melody, sub bass).
+ *   Tempo and density lift a little while climbing or docked; it ducks during warnings and stops dead on a failure.
+ * - Cabin sounds: engine rumble heard through the structure (there is no sound in vacuum), a soft RCS hiss.
  * - Caution and warning: amber two-tone chirp, red master alarm.
  * - Events: soft-capture clunk, docking chime (rising major arpeggio), impact thud followed by radio static.
  */
@@ -15,9 +15,10 @@ export interface AudioFrame {
   warning: Warning;
 }
 
-// A-minor-pentatonic flavoured progression that resolves to major: Am – F – C – G.
-const ROOTS = [57, 53, 60, 55];
-const LEAD = [0, 7, 12, 15, 12, 7, 10, 12, 0, 7, 12, 19, 17, 15, 12, 10];
+// A gentle, hopeful progression: C – G – Am – F, each a warm major/minor triad (root, third, fifth as MIDI notes).
+const CHORDS = [[48, 55, 64, 67], [43, 55, 62, 67], [45, 57, 64, 69], [41, 53, 60, 65]];
+// A sparse C-major-pentatonic bell melody drifting over the pads.
+const MELODY = [67, 72, 76, 74, 72, 69, 72, 76, 79, 76, 72, 74, 69, 67, 72, 74];
 const midi = (n: number) => 440 * 2 ** ((n - 69) / 12);
 
 export class GameAudio {
@@ -28,6 +29,7 @@ export class GameAudio {
   private cabin!: GainNode;
   private engine!: GainNode;
   private engineFilter!: BiquadFilterNode;
+  private rcs!: GainNode;
   private noise!: AudioBuffer;
   private step = 0;
   private nextStep = 0;
@@ -75,7 +77,24 @@ export class GameAudio {
     this.engine = ctx.createGain(); this.engine.gain.value = 0;
     src.connect(this.engineFilter).connect(this.engine).connect(this.cabin);
     src.start();
+    // RCS: a soft, continuous band-passed hiss whose level follows the thrusters, instead of a machine-gun of clicks.
+    const rsrc = ctx.createBufferSource(); rsrc.buffer = this.noise; rsrc.loop = true;
+    const rf = ctx.createBiquadFilter(); rf.type = 'bandpass'; rf.frequency.value = 1400; rf.Q.value = 0.7;
+    this.rcs = ctx.createGain(); this.rcs.gain.value = 0;
+    rsrc.connect(rf).connect(this.rcs).connect(this.cabin);
+    rsrc.start();
     this.nextStep = ctx.currentTime + 0.1;
+  }
+
+  /** Slow-attack pad voice for warm sustained chords. */
+  private pad(freq: number, at: number, duration: number, level: number, type: OscillatorType, dest: AudioNode) {
+    const ctx = this.ctx!, osc = ctx.createOscillator(), g = ctx.createGain();
+    osc.type = type; osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(level, at + duration * 0.4);   // slow swell
+    g.gain.exponentialRampToValueAtTime(0.0001, at + duration);         // gentle fade
+    osc.connect(g).connect(dest);
+    osc.start(at); osc.stop(at + duration + 0.05);
   }
 
   private tone(freq: number, at: number, duration: number, level: number, type: OscillatorType, dest: AudioNode, slideTo?: number) {
@@ -105,10 +124,12 @@ export class GameAudio {
     const ctx = this.ctx, now = ctx.currentTime;
     this.engine.gain.setTargetAtTime(frame.throttle * 0.5, now, 0.08);
     this.engineFilter.frequency.setTargetAtTime(120 + frame.throttle * 260, now, 0.1);
-    if (frame.rcsActive && now - this.lastRcs > 0.11) {this.lastRcs = now; this.burst(now, 0.07, 0.12, 900, this.cabin);}
+    // A short soft thump on the leading edge of a thruster pulse, then a steady hiss while held — no machine-gun.
+    if (frame.rcsActive && now - this.lastRcs > 0.25) {this.lastRcs = now; this.tone(150, now, 0.09, 0.06, 'sine', this.cabin, 90);}
+    this.rcs.gain.setTargetAtTime(frame.rcsActive ? 0.06 : 0, now, 0.05);
     if (frame.phase !== this.lastPhase) {
       if (frame.phase === 'capture') this.tone(70, now, 0.35, 0.5, 'sine', this.cabin, 40);
-      if (frame.phase === 'docked') [72, 76, 79, 84, 88].forEach((n, i) => this.tone(midi(n), now + i * 0.11, 0.5, 0.18, 'square', this.master));
+      if (frame.phase === 'docked') [72, 76, 79, 84, 88].forEach((n, i) => this.tone(midi(n), now + i * 0.12, 0.6, 0.14, 'triangle', this.master));
       this.lastPhase = frame.phase;
     }
     if (frame.warning !== 'none' && now - this.lastChirp > (frame.warning === 'master' ? 0.5 : 1.6)) {
@@ -130,25 +151,29 @@ export class GameAudio {
     this.sequence(frame.phase, now);
   }
 
+  /**
+   * A calm, hopeful ambient score, not chiptune techno: warm sustained pads move through C–G–Am–F, a soft sine bell
+   * melody drifts over them, and a gentle sub bass marks the root. Motion picks up a little while climbing or docked,
+   * but nothing is harsh — no noise percussion, no square-wave lead.
+   */
   private sequence(phase: string, now: number) {
-    const bpm = phase === 'ascent' ? 136 : phase === 'terminal' || phase === 'capture' ? 104 : phase === 'docked' ? 128 : 120;
-    const sixteenth = 60 / bpm / 4;
-    const intense = phase === 'ascent' || phase === 'docked';
-    while (this.nextStep < now + 0.12) {
+    const bpm = phase === 'ascent' ? 96 : phase === 'docked' ? 100 : 84;
+    const beat = 60 / bpm;
+    const step = beat / 2;                       // an eighth-note grid
+    const busy = phase === 'ascent' || phase === 'docked';
+    while (this.nextStep < now + 0.15) {
       const t = Math.max(this.nextStep, now), s = this.step++;
-      const bar = Math.floor(s / 16) % 4, root = ROOTS[bar] - (bar === 0 ? 0 : 0);
-      // Kick on the beat, open hats on the offbeat, closed ticks between.
-      if (s % 4 === 0 && phase !== 'parked') this.tone(150, t, 0.16, 0.55, 'sine', this.music, 42);
-      if (s % 4 === 2) this.burst(t, 0.08, 0.16, 7000, this.music);
-      else if (intense && s % 2 === 1) this.burst(t, 0.025, 0.06, 9000, this.music);
-      // Rolling triangle bass: root and octave.
-      if (s % 2 === 0) this.tone(midi(root - 24 + (s % 4 === 2 ? 12 : 0)), t, sixteenth * 1.8, 0.22, 'triangle', this.music);
-      // 8-bit arpeggio lead: sparser while parked and on final approach, busier during the climb.
-      const density = phase === 'parked' || phase === 'terminal' ? 4 : phase === 'coast' ? 2 : 1;
-      if (s % density === 0) this.tone(midi(root + LEAD[s % 16]), t, sixteenth * 0.9, phase === 'terminal' ? 0.05 : 0.08, 'square', this.music);
-      // Major lift every fourth bar when docked or climbing.
-      if (intense && bar === 3 && s % 8 === 0) this.tone(midi(root + 16), t, sixteenth * 6, 0.05, 'sawtooth', this.music);
-      this.nextStep = t + sixteenth;
+      const barLen = 8;                          // eighth-notes per bar
+      const bar = Math.floor(s / barLen) % 4, inBar = s % barLen, chord = CHORDS[bar];
+      // Warm pad chord: swell in at the top of each bar and hold across it.
+      if (inBar === 0) for (const [i, note] of chord.entries()) this.pad(midi(note), t, beat * 3.6, i === 0 ? 0.05 : 0.035, i < 2 ? 'triangle' : 'sine', this.music);
+      // Sub bass on the root, once (twice a bar when busy).
+      if (inBar === 0 || (busy && inBar === 4)) this.pad(midi(chord[0] - 12), t, beat * 1.8, 0.09, 'sine', this.music);
+      // Sparse bell melody: every other eighth when parked/coasting, most eighths when busy.
+      if (busy ? inBar % 2 === 0 : inBar % 4 === 0) this.tone(midi(MELODY[s % MELODY.length]), t, step * 1.6, phase === 'terminal' ? 0.03 : 0.05, 'sine', this.music);
+      // A soft high sparkle to lift the fourth bar when climbing or docked.
+      if (busy && bar === 3 && inBar === 0) this.tone(midi(chord[2] + 12), t, beat * 2.4, 0.03, 'triangle', this.music);
+      this.nextStep = t + step;
     }
   }
 }
