@@ -72,6 +72,24 @@ button:focus-visible, select:focus-visible { outline: 2px solid #8fe8ed; outline
 .debrief-detail { margin: 0 0 12px; color: #aac0c9; }
 .debrief dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0 0 16px; }.debrief dt { color: #7f98a4; }.debrief dd { margin: 0; }
 .debrief div { display: flex; gap: 8px; }.debrief button { flex: 1; padding: 8px; }
+/* Cockpit heads-up instruments: corner gauges, a fixed nose reticle and a prograde marker. */
+.cockpit-hud { position: fixed; inset: 0; z-index: 4; pointer-events: none; font: 11px ui-monospace, Menlo, monospace; color: #a8f6e3; }
+.cockpit-hud .ck { position: absolute; padding: 8px 10px; background: linear-gradient(#0a1016aa, #0a101655); border: 1px solid #a8f6e333; border-radius: 8px; min-width: 92px; }
+.cockpit-hud .ck small { display: block; color: #6f8f88; font-size: 8px; letter-spacing: 1.5px; }
+.cockpit-hud .ck b { font-size: 15px; color: #dff7ef; letter-spacing: .5px; }
+.cockpit-hud .tl { top: 14px; left: 14px; }.cockpit-hud .tr { top: 14px; right: 14px; text-align: right; }
+.cockpit-hud .ml { top: 84px; left: 14px; }.cockpit-hud .mr { top: 84px; right: 14px; text-align: right; }
+.cockpit-hud .bl { bottom: 20px; left: 14px; }.cockpit-hud .br { bottom: 20px; right: 14px; text-align: right; }
+.cockpit-hud .bl i { display: block; margin-top: 4px; width: 120px; height: 5px; background: #a8f6e322; border-radius: 3px; overflow: hidden; }
+.cockpit-hud .bl u { display: block; height: 100%; background: #a8f6e3; }
+.cockpit-hud .ck-status { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); padding: 5px 12px; background: #0a1016aa; border: 1px solid #a8f6e344; border-radius: 999px; letter-spacing: 2px; color: #dff7ef; }
+.cockpit-hud .ck-reticle { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px; border: 1px solid #a8f6e355; border-radius: 50%; }
+.cockpit-hud .ck-reticle::before, .cockpit-hud .ck-reticle::after { content: ''; position: absolute; background: #a8f6e3aa; }
+.cockpit-hud .ck-reticle::before { left: 50%; top: -10px; width: 1px; height: 12px; }.cockpit-hud .ck-reticle::after { top: 50%; left: -10px; height: 1px; width: 12px; }
+.cockpit-hud .ck-prograde { position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; border: 2px solid #ffcd73; border-radius: 50%; box-shadow: 0 0 6px #000; }
+.cockpit-hud .ck-prograde::before, .cockpit-hud .ck-prograde::after { content: ''; position: absolute; background: #ffcd73; }
+.cockpit-hud .ck-prograde::before { left: 9px; top: -7px; width: 2px; height: 7px; }.cockpit-hud .ck-prograde::after { top: 9px; left: -7px; height: 2px; width: 7px; }
+
 /* Compact layout: the full panels hide behind a pull-up menu so the view stays clear; a slim strip carries the essentials. */
 body.compact .nav-controls, body.compact .mission-panel { display: none; }
 body.compact .map-panel { display: none; }

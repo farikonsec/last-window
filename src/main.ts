@@ -1,7 +1,7 @@
 import * as T from 'three';
 import './style.css';
 import {type AttitudeMode, Mission} from './sim/mission';
-import {KESTREL} from './sim/vehicle';
+import {KESTREL, altitudeAboveGround} from './sim/vehicle';
 import {MissionHud, rcsKeys} from './render/mission-hud';
 import {GameAudio, type Warning} from './render/audio';
 import {Effects, makePlume, makeRcsPuff} from './render/effects';
@@ -458,6 +458,20 @@ dockingSight.className = 'docking-sight';
 dockingSight.innerHTML = '<i></i><span></span><b></b>';
 app.appendChild(dockingSight);
 
+// Cockpit instruments: a heads-up overlay only in the cockpit view, with corner gauges, a fixed nose reticle and a
+// prograde (velocity) marker so you can fly the pitch cue by eye without reading the side panel.
+const cockpitHud = document.createElement('div');
+cockpitHud.className = 'cockpit-hud';
+cockpitHud.innerHTML = `<div class="ck-reticle"></div><div class="ck-prograde"></div>
+  <div class="ck tl"><small>ALTITUDE</small><b data-ck="alt"></b></div>
+  <div class="ck tr"><small>VERTICAL</small><b data-ck="vs"></b></div>
+  <div class="ck ml"><small>HORIZONTAL</small><b data-ck="hspd"></b></div>
+  <div class="ck mr"><small>PITCH · CUE</small><b data-ck="pitch"></b></div>
+  <div class="ck bl"><small>THROTTLE</small><b data-ck="thr"></b><i><u data-ck="thrbar"></u></i></div>
+  <div class="ck br"><small>MAIN · RCS · BATT</small><b data-ck="res"></b></div>
+  <div class="ck-status" data-ck="status"></div>`;
+app.appendChild(cockpitHud);
+
 // ---------------------------------------------------------------------------------------------------------------
 // Frame
 
@@ -587,6 +601,30 @@ function place(realDt: number) {
     dockingSight.querySelector('span')!.textContent = `ARGO PORT  ${mission.dockingRange.toFixed(1)} m  ${approach.rangeRate.toFixed(2)} m/s`;
     dockingSight.querySelector('b')!.textContent = mission.captureRemaining > 0 ? `SOFT CAPTURE · LATCH ${mission.captureRemaining.toFixed(1)} s`
       : mission.state.status === 'docked' ? 'HARD DOCK · PRESSURE SEAL' : `BRAKE LIMIT ${mission.brakingLimit.toFixed(2)} m/s · RCS ${rcsKeys(mission.translationCue.keys)}`;
+  }
+  cockpitHud.hidden = viewName !== 'cockpit';
+  if (!cockpitHud.hidden) {
+    const o = mission.summary, s = mission.state;
+    const set = (k: string, v: string) => {cockpitHud.querySelector(`[data-ck=${k}]`)!.textContent = v;};
+    set('alt', `${(altitudeAboveGround(s, mission.env) / 1000).toFixed(2)} km`);
+    set('vs', `${o.verticalSpeed.toFixed(0)} m/s`);
+    set('hspd', `${o.horizontalSpeed.toFixed(0)} m/s`);
+    const actualPitch = Math.asin(Math.max(-1, Math.min(1, dot(rotate(s.q, [0, 1, 0]), unit(s.r))))) * 180 / Math.PI;
+    const cuePitch = Math.asin(Math.max(-1, Math.min(1, dot(mission.guidance.thrustDirection, unit(s.r))))) * 180 / Math.PI;
+    set('pitch', `${actualPitch.toFixed(0)}° → ${cuePitch.toFixed(0)}°`);
+    const thr = mission.assisted && mission.launched ? mission.bus.read().throttle : mission.throttle;
+    set('thr', `${Math.round(thr * 100)}%`);
+    cockpitHud.querySelector<HTMLElement>('[data-ck=thrbar]')!.style.width = `${thr * 100}%`;
+    set('res', `${(s.mainPropellant / KESTREL.mainPropellantCapacity * 100).toFixed(0)}% · ${(s.rcsPropellant / KESTREL.rcsPropellantCapacity * 100).toFixed(0)}% · ${s.batteryKWh.toFixed(1)}kWh`);
+    set('status', mission.result ? mission.result.replaceAll('-', ' ').toUpperCase() : !mission.launched ? `T−${Math.max(0, mission.countdown).toFixed(0)} s` : mission.phase.toUpperCase());
+    // Prograde marker: a point 1 km ahead along the velocity, projected to screen (hidden while essentially parked).
+    const prograde = cockpitHud.querySelector<HTMLElement>('.ck-prograde')!;
+    if (mission.launched && (Math.abs(o.verticalSpeed) > 1 || o.horizontalSpeed > 1)) {
+      const ahead = add(s.r, scale(unit(s.v), 1000));
+      const pv = toThree(sub(apply(sky.mciToEqj, ahead), cameraEqj)).project(viewer.camera);
+      prograde.hidden = pv.z > 1;
+      prograde.style.transform = `translate(${((pv.x * 0.5 + 0.5) * innerWidth).toFixed(1)}px, ${((-pv.y * 0.5 + 0.5) * innerHeight).toFixed(1)}px)`;
+    } else prograde.hidden = true;
   }
   labels.update(viewer.camera, cameraEqj, rings.altitude);
   const geo = terrain.fromLocal(local.x, local.y);
