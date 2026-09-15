@@ -229,9 +229,18 @@ export const HADLEY_HARDWARE: Placement[] = [
   {name: 'buggy', url: 'models/buggy.glb', ...offset(KESTREL_PAD, 10, -5), heading: 90},
 ];
 
-/** Stand-in models shown at whichever world mission you travel to (loaded once, hidden until a site is placed). */
+/** Distinct, roughly-accurate stand-in models per mission family, shown at whichever world mission you travel to
+ * (loaded once, hidden until a site is placed). Names are `site-<key>` to match probes.ts siteModel(). */
 export const SITE_MODELS: Placement[] = [
-  {name: 'site-lander', url: 'models/probe-lander.glb', ...APOLLO15_LM, heading: 0},
-  {name: 'site-rover', url: 'models/probe-rover.glb', ...APOLLO15_LM, heading: 0},
   {name: 'site-apollo', url: 'models/apollo-lm-descent.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-luna', url: 'models/mission-luna.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-lunokhod', url: 'models/mission-lunokhod.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-surveyor', url: 'models/mission-surveyor.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-change', url: 'models/mission-change.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-yutu', url: 'models/mission-yutu.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-vikram', url: 'models/mission-vikram.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-slim', url: 'models/mission-slim.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-beresheet', url: 'models/mission-beresheet.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-rashid', url: 'models/mission-rashid.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-odysseus', url: 'models/mission-odysseus.glb', ...APOLLO15_LM, heading: 0},
 ];

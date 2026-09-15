@@ -13,7 +13,7 @@ import {bodyToInertial, circularState, inertialToBody, surfaceVelocity} from './
 import {LabelLayer, type LabelItem} from './render/labels';
 import {LunarMap} from './render/map';
 import {PLACES, hadleyLandforms} from './sim/atlas';
-import {PROBES, type Probe, bearing as greatCircleBearing, surfaceDistance} from './sim/probes';
+import {PROBES, type Probe, bearing as greatCircleBearing, siteModel, surfaceDistance} from './sim/probes';
 import {Manual} from './render/manual';
 import {R_MOON} from './sim/constants';
 import {angularDiameter, apply, bodiesAt, EARTH_RADIUS, earthPhase, moonFixedToEqj, skyAt, topocentric} from './sim/ephemeris';
@@ -710,8 +710,8 @@ function travelTo(p: Probe) {
   const t = sunUpTime(p.lat, p.lon, simTime);
   mission.state.t = t; simTime = t;
   reanchorTo(p.lat, p.lon);
-  const pick = p.kind === 'crewed' ? 'site-apollo' : p.kind === 'rover' ? 'site-rover' : 'site-lander';
-  for (const name of ['site-lander', 'site-rover', 'site-apollo']) {
+  const pick = `site-${siteModel(p.id)}`;
+  for (const {name} of SITE_MODELS) {
     const o = hardware.objects.get(name);
     if (!o) continue;
     o.visible = name === pick;

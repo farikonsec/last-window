@@ -48,11 +48,18 @@ export const PROBES: Probe[] = [
   {id: 'im1', name: 'IM-1 · Odysseus', agency: 'Intuitive Machines', year: 2024, lat: -80.13, lon: 1.44, kind: 'lander', note: 'Nearest the south pole, tipped on landing'},
 ];
 
-/** Which glTF model represents a probe kind. Crewed → Apollo LM; rovers → LRV; everything else → a generic lander. */
-export function probeModel(kind: ProbeKind): string {
-  if (kind === 'crewed') return 'models/apollo-lm-descent.glb';
-  if (kind === 'rover') return 'models/probe-rover.glb';
-  return 'models/probe-lander.glb';
+/** The specific stand-in model shown when you visit a mission — a distinct, roughly-accurate model per spacecraft
+ * family, each carrying its country's flag. Returns the site-model key (the hardware object named `site-<key>`). */
+export function siteModel(id: string): string {
+  const map: Record<string, string> = {
+    apollo11: 'apollo', apollo12: 'apollo', apollo14: 'apollo', apollo16: 'apollo', apollo17: 'apollo',
+    luna2: 'luna', luna9: 'luna', luna24: 'luna',
+    lunokhod1: 'lunokhod', lunokhod2: 'lunokhod',
+    surveyor1: 'surveyor', surveyor6: 'surveyor',
+    change3: 'yutu', change4: 'yutu', change5: 'change', change6: 'change',
+    chandrayaan3: 'vikram', slim: 'slim', rashid: 'rashid', beresheet: 'beresheet', im1: 'odysseus',
+  };
+  return map[id] ?? 'luna';
 }
 
 const DEG = Math.PI / 180;
