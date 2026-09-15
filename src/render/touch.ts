@@ -25,6 +25,7 @@ export function setupTouch({parent, press, setThrottle, getThrottle, isDriving}:
     <button class="ttilt" aria-pressed="false">TILT</button>
     <div class="tpad">${PAD_KEYS.map(([label, key]) => `<button class="tbtn" data-key="${key}">${label}</button>`).join('')}</div>
     <div class="tthrottle" role="slider" aria-label="Main engine throttle"><i></i><b>0%</b><span>THR</span></div>
+    <button class="tturbo" data-key="shift" aria-label="Turbo">TURBO</button>
     <div class="ttoast" hidden></div>`;
   parent.appendChild(root);
   const toast = root.querySelector<HTMLElement>('.ttoast')!;
@@ -121,9 +122,21 @@ export function setupTouch({parent, press, setThrottle, getThrottle, isDriving}:
     button.addEventListener('lostpointercapture', up);
   });
 
+  // Turbo: a press-and-hold button that holds Shift, shown only while driving the buggy.
+  const turboBtn = root.querySelector<HTMLButtonElement>('.tturbo')!;
+  const turboUp = (e: PointerEvent) => {turboBtn.releasePointerCapture?.(e.pointerId); turboBtn.classList.remove('on'); press('shift', false);};
+  turboBtn.addEventListener('pointerdown', e => {e.preventDefault(); try {turboBtn.setPointerCapture(e.pointerId);} catch {/* synthetic */} turboBtn.classList.add('on'); press('shift', true);});
+  turboBtn.addEventListener('pointerup', turboUp);
+  turboBtn.addEventListener('pointercancel', turboUp);
+  turboBtn.addEventListener('lostpointercapture', turboUp);
+
   // Throttle slider: absolute 0..1 from the drag position; snaps to 0 near the bottom.
   const slider = root.querySelector<HTMLElement>('.tthrottle')!, fill = slider.querySelector('i')!, readout = slider.querySelector('b')!;
-  const draw = () => {const v = getThrottle(); fill.style.height = `${v * 100}%`; readout.textContent = `${Math.round(v * 100)}%`;};
+  const draw = () => {
+    const v = getThrottle(); fill.style.height = `${v * 100}%`; readout.textContent = `${Math.round(v * 100)}%`;
+    // While driving, the RCS pad and main-engine slider are irrelevant; the stick drives and TURBO replaces them.
+    root.classList.toggle('driving', isDriving?.() ?? false);
+  };
   let sliderId = -1;
   const setFrom = (e: PointerEvent) => {
     const r = slider.getBoundingClientRect();

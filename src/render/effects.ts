@@ -139,7 +139,7 @@ export class Effects {
   get active() {return this.bursts.length + this.debris.length;}
 
   /** Spray regolith radially from a point on the ground (liftoff blast or impact ejecta). */
-  dust(centre: V3, velocity: V3, t: number, count: number, speed: [number, number], ground: (r: V3) => number) {
+  dust(centre: V3, velocity: V3, t: number, count: number, speed: [number, number], ground: (r: V3) => number, life = 6) {
     const up = unit(centre);
     const east = unit([-up[1], up[0], 0]), north = [up[1] * east[2] - up[2] * east[1], up[2] * east[0] - up[0] * east[2], up[0] * east[1] - up[1] * east[0]] as V3;
     const r = new Float64Array(count * 3), v = new Float64Array(count * 3);
@@ -151,7 +151,12 @@ export class Effects {
       r.set(start, i * 3);
       v.set(add(velocity, scale(unit(dir), s)), i * 3);
     }
-    this.add('dust', r, v, t, 6, ground);
+    this.add('dust', r, v, t, life, ground);
+  }
+
+  /** A small, short-lived rooster-tail of regolith thrown up by a wheel dragging over the surface. */
+  wheelSpray(centre: V3, velocity: V3, t: number, ground: (r: V3) => number) {
+    this.dust(centre, velocity, t, 26, [1, 9], ground, 1.5);
   }
 
   /**

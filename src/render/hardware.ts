@@ -120,6 +120,10 @@ export interface Placement {
   heading: number;
   /** Metres above the ground at the origin (0 = standing on it). */
   lift?: number;
+  /** Nose-up tilt in radians (a driven vehicle following the fore-aft slope). */
+  pitch?: number;
+  /** Bank in radians, right side up positive (following the side slope). */
+  roll?: number;
 }
 
 /**
@@ -172,7 +176,14 @@ export class HardwareSet {
     const right = new T.Vector3().crossVectors(up, front);
     const r = R_MOON + this.terrain.height(p.lat, p.lon) + (p.lift ?? 0);
     const origin = up.clone().multiplyScalar(r).sub(new T.Vector3(...this.anchor));
-    return new T.Matrix4().makeBasis(right, up, front).setPosition(origin);
+    const base = new T.Matrix4().makeBasis(right, up, front).setPosition(origin);
+    // A driven vehicle tilts in its own frame: pitch about +X (nose up) and roll about +Z (bank), applied before the
+    // stand-up basis so the model leans on the slope instead of sitting flat.
+    if (p.pitch || p.roll) {
+      const lean = new T.Matrix4().makeRotationX(-(p.pitch ?? 0)).multiply(new T.Matrix4().makeRotationZ(p.roll ?? 0));
+      base.multiply(lean);
+    }
+    return base;
   }
 
   /** Follow the terrain's anchor transform for this frame. */
@@ -200,4 +211,6 @@ export const HADLEY_HARDWARE: Placement[] = [
   {name: 'apollo15-alsep', url: 'models/alsep.glb', ...offset(APOLLO15_LM, -105, 30), heading: 90},
   {name: 'kestrel', url: 'models/kestrel.glb', ...KESTREL_PAD, heading: 132},
   {name: 'un-flag', url: 'models/flag-un.glb', ...offset(KESTREL_PAD, -12, 9), heading: 200},
+  // The crew's fast buggy, parked a few metres from KESTREL; driven live, so re-placed every frame from its sim state.
+  {name: 'buggy', url: 'models/buggy.glb', ...offset(KESTREL_PAD, 10, -5), heading: 90},
 ];

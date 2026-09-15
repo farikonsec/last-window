@@ -5,8 +5,9 @@ import {KESTREL, altitudeAboveGround} from './sim/vehicle';
 import {MissionHud, rcsKeys} from './render/mission-hud';
 import {GameAudio, type Warning} from './render/audio';
 import {Effects, makePlume, makeRcsPuff} from './render/effects';
+import {Tracks} from './render/tracks';
 import {setupTouch} from './render/touch';
-import {NO_DRIVE, Rover, type RoverControls} from './sim/rover';
+import {BUGGY, Buggy, NO_DRIVE, type BuggyControls} from './sim/buggy';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {bodyToInertial, circularState, inertialToBody, surfaceVelocity} from './sim/orbit';
 import {LabelLayer, type LabelItem} from './render/labels';
@@ -234,20 +235,21 @@ function makeRig(name: ViewName): LookRig {
         look: () => ({forward: body([0, 0, 1]), up: body([0, 1, 0])})};
     }
     case 'rover': {
-      // Chase the rover from behind and above, turning with it. Body-fixed lat/lon has to be rotated into the inertial
-      // frame for the current time first, or the camera slides off the rover as the Moon turns under it.
+      // Chase the buggy from behind and above, turning with it and following it into the air. Body-fixed lat/lon has
+      // to be rotated into the inertial frame for the current time, or the camera slides off as the Moon turns under it.
       const at = (lat: number, lon: number, height: number) =>
         apply(sky.mciToEqj, bodyToInertial(scale(latLonToUnit(lat, lon), R_MOON + height), simTime));
-      const ground = () => at(rover.lat, rover.lon, terrain.height(rover.lat, rover.lon) + 1.6);
-      const up = () => unit(ground());
-      const rig = lookRig(ground, up, 0, -12, 60);
+      const target = () => at(buggy.lat, buggy.lon, terrain.height(buggy.lat, buggy.lon) + buggy.altitude + 1.5);
+      const up = () => unit(at(buggy.lat, buggy.lon, 0));
+      const rig = lookRig(target, up, 0, -12, 60);
       rig.position = () => {
-        // Sit behind and above, never below the ground under the rover, so a rise between them cannot hide it.
-        const behind = rover.offset(-12);
-        const floor = Math.max(terrain.height(behind.lat, behind.lon), terrain.height(rover.lat, rover.lon));
-        return at(behind.lat, behind.lon, floor + 4.6);
+        // Pull back and drop lower as speed rises, for a sense of rush; never below the ground between camera and car.
+        const back = 8 + Math.min(9, Math.abs(buggy.speed) * 0.28);
+        const behind = buggy.offset(-back);
+        const floor = Math.max(terrain.height(behind.lat, behind.lon), terrain.height(buggy.lat, buggy.lon)) + buggy.altitude;
+        return at(behind.lat, behind.lon, floor + 3.4);
       };
-      rig.look = () => ({forward: sub(ground(), rig.position()), up: up()});
+      rig.look = () => ({forward: sub(target(), rig.position()), up: up()});
       return rig;
     }
     case 'argo': {
@@ -304,15 +306,16 @@ function makeRig(name: ViewName): LookRig {
   }
 }
 
-// Lunar rover: starts parked where Apollo 15 left the LRV, and drives on the same terrain function.
-const lrvPlacement = HADLEY_HARDWARE.find(p => p.name === 'apollo15-lrv')!;
-const rover = new Rover(lrvPlacement.lat, lrvPlacement.lon, lrvPlacement.heading);
-let driving = params.get('scenario') === 'rover';
+// The crew's fast buggy: starts parked beside KESTREL and drives on the same terrain function the lander flies against.
+const buggyStart = HADLEY_HARDWARE.find(p => p.name === 'buggy')!;
+const buggy = new Buggy(buggyStart.lat, buggyStart.lon, buggyStart.heading);
+let wheelSpin = 0, sprayAt = 0;
+let driving = params.get('scenario') === 'rover' || params.get('scenario') === 'drive';
 let chaseDistance = 30;
 let argoCamDistance = 120;
 let viewName = (params.get('view') as ViewName) ?? 'pad';
 if (params.get('scenario') === 'ascent' || params.get('scenario') === 'descent') viewName = 'chase';
-if (params.get('scenario') === 'rover') viewName = 'rover';
+if (params.get('scenario') === 'rover' || params.get('scenario') === 'drive') viewName = 'rover';
 if (params.get('scenario') === 'terminal' || params.get('scenario') === 'docking') viewName = 'docking';
 if (params.get('scenario') === 'crash' || params.get('scenario') === 'collision') viewName = 'chase';
 let rig = makeRig(viewName);
@@ -327,7 +330,110 @@ const equipment: Record<string, [string, string, number]> = {
   'apollo15-lrv': ['Lunar Roving Vehicle', 'Apollo 15 electric rover · parked after the last EVA', 2.7],
   'apollo15-alsep': ['ALSEP science station', 'Apollo Lunar Surface Experiments Package', 2.3],
   'un-flag': ['United Nations flag', 'Fictional crew expedition marker', 3.2],
+  'buggy': ['Crew buggy', 'Fast pressurised rover · drive it with the Drive button', 3.0],
 };
+
+// Cache the buggy's wheel nodes once loaded so they can be spun and steered each frame.
+const buggyWheels: {node: T.Object3D; front: boolean}[] = [];
+{
+  const holder = hardware.objects.get('buggy');
+  if (holder) for (const tag of ['fl', 'fr', 'rl', 'rr']) {
+    const node = holder.getObjectByName(`wheel_${tag}`);
+    if (node) buggyWheels.push({node, front: tag[0] === 'f'});
+  }
+}
+
+/** Stand the buggy model on the slope (nose-up in the air), lift it while jumping, and spin and steer its wheels. */
+function placeBuggy() {
+  const holder = hardware.objects.get('buggy');
+  if (!holder) return;
+  const h = (lat: number, lon: number) => terrain.height(lat, lon);
+  const wb = BUGGY.wheelbase, tr = 2.3;
+  const f = buggy.offset(wb / 2), b = buggy.offset(-wb / 2);
+  const rgt = buggy.offset(tr / 2, buggy.heading + Math.PI / 2), lft = buggy.offset(-tr / 2, buggy.heading + Math.PI / 2);
+  let pitch = Math.atan2(h(f.lat, f.lon) - h(b.lat, b.lon), wb);
+  let roll = Math.atan2(h(rgt.lat, rgt.lon) - h(lft.lat, lft.lon), tr);
+  if (buggy.airborne) {pitch = 0.5 * Math.atan2(buggy.vVert, Math.max(4, Math.abs(buggy.speed))); roll *= 0.15;}
+  holder.matrix.copy(hardware.placementMatrix({
+    name: 'buggy', url: '', lat: buggy.lat, lon: buggy.lon, heading: buggy.heading * 180 / Math.PI,
+    lift: buggy.altitude, pitch, roll,
+  }));
+  holder.updateMatrixWorld(true);
+  // Wheels roll at speed and the fronts steer; airborne, they keep spinning but don't steer.
+  const steer = buggy.airborne ? 0 : (held.has('d') ? 1 : 0) - (held.has('a') ? 1 : 0);
+  for (const w of buggyWheels) {
+    w.node.rotation.x = wheelSpin;
+    w.node.rotation.y = w.front ? -steer * 0.5 : 0;
+  }
+}
+
+// Things the buggy can crash into (everything placed at Hadley except itself).
+const BUGGY_OBSTACLES = HADLEY_HARDWARE.filter(p => p.name !== 'buggy');
+const DEG = Math.PI / 180;
+
+/** The buggy's world position in the inertial frame, at a given metres-behind offset (0 = under the buggy). */
+function buggyGroundPoint(behind = 0): V3 {
+  const p = buggy.offset(-behind);
+  return bodyToInertial(scale(latLonToUnit(p.lat, p.lon), R_MOON + terrain.height(p.lat, p.lon)), simTime);
+}
+
+/** Tyre tracks, dust off the wheels, a burst and thump on a hard landing, and collisions with the hardware. */
+function driveEffects(dt: number) {
+  const moving = Math.abs(buggy.speed) + Math.abs(buggy.slip);
+  // Tyre tracks: lay them while the wheels are down and rolling; break the trail in the air; skid marks under braking.
+  if (buggy.airborne || moving < 0.4) tracks.pause();
+  else {
+    const braking = held.has('s') && Math.abs(buggy.speed) > 1;
+    tracks.drop(buggy.lat, buggy.lon, buggy.heading, braking ? 1 : Math.min(1, Math.abs(buggy.slip) / 5));
+  }
+  if (!buggy.airborne && moving > 2 && fxClock - sprayAt > 0.09) {
+    sprayAt = fxClock;
+    const spot = buggyGroundPoint(1.2);
+    effects.wheelSpray(spot, surfaceVelocity(spot), fxClock, groundAt);
+  }
+  if (buggy.landingImpact > 0) {
+    const here = buggyGroundPoint(0);
+    effects.dust(here, surfaceVelocity(here), fxClock, 700, [4, 45], groundAt, 3);
+    audio.thump(Math.min(1, buggy.landingImpact / 14));
+  }
+  if (buggy.airborne || Math.abs(buggy.speed) < 1) return;
+  // Collisions: shove the buggy back out of anything it drives into, scrub its speed, kick dust and thump.
+  const mPerDeg = R_MOON * DEG;
+  for (const o of BUGGY_OBSTACLES) {
+    const dN = (buggy.lat - o.lat) * mPerDeg, dE = (buggy.lon - o.lon) * mPerDeg * Math.cos(buggy.lat * DEG);
+    const d = Math.hypot(dN, dE), radius = 2.2 + (equipment[o.name]?.[2] ?? 2) * 0.25;
+    if (d < radius) {
+      const back = buggy.offset(-Math.sign(buggy.speed || 1) * (radius - d + 0.3));
+      buggy.lat = back.lat; buggy.lon = back.lon;
+      const impact = Math.abs(buggy.speed);
+      buggy.speed *= -0.25; buggy.slip = 0;
+      const here = buggyGroundPoint(0);
+      effects.dust(here, surfaceVelocity(here), fxClock, 400, [3, 30], groundAt, 2.5);
+      audio.thump(Math.min(1, impact / 14));
+      break;
+    }
+  }
+}
+
+// Drive HUD: a speedometer, turbo reserve bar and drive/reverse/airborne state, shown only while driving.
+const driveHud = document.createElement('div');
+driveHud.className = 'drive-hud';
+driveHud.hidden = true;
+driveHud.innerHTML = `<div class="dh-state">DRIVE</div><div class="dh-speed"><b>0</b><span>km/h</span></div>
+  <div class="dh-turbo"><i></i><span>TURBO · hold Shift</span></div>`;
+app.appendChild(driveHud);
+const dhState = driveHud.querySelector<HTMLElement>('.dh-state')!;
+const dhSpeed = driveHud.querySelector('.dh-speed b')!;
+const dhTurbo = driveHud.querySelector<HTMLElement>('.dh-turbo i')!;
+function updateDriveHud() {
+  driveHud.hidden = !driving;
+  if (!driving) return;
+  dhSpeed.textContent = (Math.abs(buggy.speed) * 3.6).toFixed(0);
+  dhTurbo.style.width = `${Math.round(buggy.turbo * 100)}%`;
+  const state = buggy.airborne ? 'AIRBORNE' : Math.abs(buggy.speed) < 0.2 ? 'PARKED' : buggy.speed < -0.1 ? 'REVERSE' : 'DRIVE';
+  dhState.textContent = state;
+  dhState.classList.toggle('air', buggy.airborne);
+}
 const labelRay = new T.Raycaster();
 const hardwareOccluded = (name: string, target: V3) => {
   const relative = toThree(sub(target, cameraEqj));
@@ -365,7 +471,7 @@ controls.className = 'nav-controls';
 controls.setAttribute('aria-label', 'Surface navigation');
 controls.innerHTML = `<strong>LAST WINDOW <small>HADLEY EXPEDITION / 2031</small></strong>
   <div><select aria-label="Camera view" id="camera-view">${['pad','chase','cockpit','docking','argo','rover','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
-  <button id="label-mode">Labels: smart [L]</button><button id="map-mode">Map: local [M]</button><button id="sound">Sound: off [P]</button><button id="autopilot">Autopilot: off [Y]</button><button id="mission-mode">Mission: ascent</button><button id="drive">Drive rover</button></div>
+  <button id="label-mode">Labels: smart [L]</button><button id="map-mode">Map: local [M]</button><button id="sound">Sound: off [P]</button><button id="autopilot">Autopilot: off [Y]</button><button id="mission-mode">Mission: ascent</button><button id="drive">Drive buggy</button></div>
   <select aria-label="Inspect equipment" id="inspect-equipment"><option value="">Inspect equipment…</option>${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</select>`;
 app.appendChild(controls);
 const cameraSelect = controls.querySelector<HTMLSelectElement>('#camera-view')!;
@@ -385,11 +491,12 @@ const driveBtn = controls.querySelector<HTMLButtonElement>('#drive')!;
 function setDriving(on: boolean) {
   driving = on;
   driveBtn.classList.toggle('view-active', on);
-  driveBtn.textContent = on ? 'Driving rover' : 'Drive rover';
+  driveBtn.textContent = on ? 'Driving buggy' : 'Drive buggy';
+  // The lander flight computer is irrelevant while driving; hide it so the surface and drive HUD are clear.
+  if (params.get('hud') !== '0') flightHud.panel.hidden = on;
   if (on) {viewName = 'rover'; rig = makeRig(viewName); cameraSelect.value = viewName;}
 }
 driveBtn.onclick = () => setDriving(!driving);
-if (driving) setDriving(true);
 cameraSelect.onchange = () => {viewName = cameraSelect.value as ViewName; rig = makeRig(viewName);};
 const changeLabels = () => {labels.mode = labels.mode === 'smart' ? 'all' : labels.mode === 'all' ? 'off' : 'smart';};
 controls.querySelector<HTMLButtonElement>('#label-mode')!.onclick = changeLabels;
@@ -477,6 +584,7 @@ app.appendChild(hud);
 hud.hidden = params.get('telemetry') !== '1';
 const flightHud = new MissionHud(app, mission);
 flightHud.onLaunch = () => {viewName = 'chase'; rig = makeRig(viewName); cameraSelect.value = viewName; warp = 1; setSheet(false);};
+if (driving) setDriving(true); // apply the initial drive state now that the flight HUD it toggles exists
 /**
  * Phone menu. A real bottom sheet inside #app, not a body pseudo-element: the old dimmer painted above the whole app
  * and swallowed every tap, which is why nothing was pressable. Opening it MOVES the desktop panels into the sheet so
@@ -529,6 +637,11 @@ for (const type of ['touchend', 'pointerup', 'click']) addEventListener(type, ()
 controls.querySelector<HTMLButtonElement>('#sound')!.onclick = () => {audioChosen = true; audio.toggle();};
 const effects = new Effects();
 viewer.scene.add(effects.group);
+// Tyre tracks live in the terrain anchor frame (like the hardware): pressed into the ground at body-fixed lat/lon.
+const trackAnchor = scale(latLonToUnit(terrain.anchorLat, terrain.anchorLon), R_MOON);
+const tracks = new Tracks((lat, lon, lift) =>
+  sub(scale(latLonToUnit(lat, lon), R_MOON + terrain.height(lat, lon) + lift), trackAnchor) as [number, number, number]);
+viewer.scene.add(tracks.group);
 let fxClock = 0, liftoffDust = false, exploded = false;
 const plume = makePlume();
 const puffs: ReturnType<typeof makeRcsPuff>[] = [];
@@ -609,6 +722,8 @@ function place(realDt: number) {
   rocks.update(local.x, local.y, rings.altitude);
   rocks.place(ringMatrix, terrainFrame.sunDir, terrainFrame.earthDir, terrainFrame.earthshine);
   hardware.place(ringMatrix);
+  tracks.group.matrix.copy(ringMatrix);
+  tracks.group.updateMatrixWorld(true);
   // MCI attitude -> EQJ, then camera-relative translation; never put large floats in mesh positions.
   const toFrame = (position: V3, right: V3, up: V3, front: V3) => new T.Matrix4().makeBasis(
     toThree(apply(sky.mciToEqj, right)), toThree(apply(sky.mciToEqj, up)), toThree(apply(sky.mciToEqj, front)),
@@ -645,6 +760,7 @@ function place(realDt: number) {
   hardwareLight.earthshine.value = terrainFrame.earthshine;
   // Sunlit regolith as seen from above: albedo ~0.11 times the Sun's height, plus a little opposition brightening.
   hardwareLight.groundRadiance.value = 0.11 * Math.max(0, terrainFrame.sunDir.dot(localUp)) * 1.1;
+  tracks.setLight(Math.max(0, terrainFrame.sunDir.dot(localUp)));
   // Floodlight on while flying within 600 m of ARGO (the docking camera sits just behind it).
   const lampOn = params.get('lamp') !== '0' && separated && !exploded && mission.dockingRange < 600;
   hardwareLight.lampIntensity.value = lampOn ? 110 : 0;
@@ -652,12 +768,9 @@ function place(realDt: number) {
     hardwareLight.lampPos.value.copy(toThree(sub(add(apply(sky.mciToEqj, mission.state.r), apply(sky.mciToEqj, rotate(mission.state.q, [0, 3.32, 2.6]))), cameraEqj)));
     hardwareLight.lampDir.value.copy(toThree(apply(sky.mciToEqj, rotate(mission.state.q, [0, 0, 1]))));
   }
-  // Drive the parked LRV model to wherever the rover has got to.
-  const lrv = hardware.objects.get('apollo15-lrv');
-  if (lrv) {
-    lrv.matrix.copy(hardware.placementMatrix({...lrvPlacement, lat: rover.lat, lon: rover.lon, heading: rover.heading * 180 / Math.PI}));
-    lrv.updateMatrixWorld(true);
-  }
+  // Drive the buggy model to wherever the sim has got to: tilt it onto the slope (or nose-up in the air), lift it off
+  // the ground while jumping, and spin and steer the wheels.
+  placeBuggy();
   if (fixturePost) {fixturePost.matrix.copy(ringMatrix); fixturePost.updateMatrixWorld(true);}
   moon.setCoverage(rings.coverage);
   const nearGround = rings.altitude < 2500;
@@ -831,13 +944,17 @@ function stepAutopilot(): number {
 /** One game frame: input, fixed-step physics, effects, audio, HUD, render. Tests drive it directly. */
 function tick(realDt: number, now: number, render = true) {
   if (driving) {
-    // Rover controls: W/S drive and brake, A/D steer. The lander's own keys are idle while you are on the ground.
-    const drive: RoverControls = {
+    // Buggy controls: W accelerate, S brake/reverse, A/D steer, Shift turbo. The lander's keys are idle on the ground.
+    const drive: BuggyControls = {
       throttle: held.has('w') ? 1 : 0,
       brake: held.has('s') ? 1 : 0,
       steer: (held.has('d') ? 1 : 0) - (held.has('a') ? 1 : 0),
+      turbo: held.has('shift'),
     };
-    rover.step(held.size ? drive : NO_DRIVE, Math.min(realDt, 0.1), terrain);
+    const step = Math.min(realDt, 0.05);
+    buggy.step(held.size ? drive : NO_DRIVE, step, terrain);
+    wheelSpin += (buggy.speed * step) / 0.52; // roll the wheels (tyre radius 0.52 m)
+    driveEffects(step);
   }
   if (autopilotOn) warp = stepAutopilot();
   else if (mission.launched) {
@@ -876,7 +993,8 @@ function tick(realDt: number, now: number, render = true) {
       : mission.launched && ((mission.dockingRange < 300 && -rangeRate > approachLimit) || mission.state.mainPropellant < KESTREL.mainPropellantCapacity * 0.08 || mission.state.batteryKWh < 3) ? 'caution' : 'none';
   const actuatorsNow = mission.bus.read();
   audio.update({phase: mission.phase, throttle: mission.launched && !mission.result ? actuatorsNow.throttle : 0,
-    rcsActive: mission.launched && !mission.result && [...actuatorsNow.rotate, ...actuatorsNow.translate].some(x => Math.abs(x) > 0.2), warning});
+    rcsActive: mission.launched && !mission.result && [...actuatorsNow.rotate, ...actuatorsNow.translate].some(x => Math.abs(x) > 0.2), warning,
+    drive: driving ? {rev: Math.min(1, Math.abs(buggy.speed) / BUGGY.turboSpeed), turbo: held.has('shift') && buggy.turbo > 0, airborne: buggy.airborne} : undefined});
   controls.querySelector('#sound')!.textContent = `Sound: ${audio.enabled ? 'on' : 'off'} [P]`;
   autopilotBtn.textContent = `Autopilot: ${autopilotOn ? 'on' : 'off'} [Y]`;
   const geo = (r: V3, t: number) => {const p = unit(inertialToBody(r, t)); return {lat: Math.asin(p[2]) * 180 / Math.PI, lon: Math.atan2(p[1], p[0]) * 180 / Math.PI};};
@@ -888,6 +1006,7 @@ function tick(realDt: number, now: number, render = true) {
     lunarMap.track = Array.from({length: 121}, (_, i) => {const t = simTime + i * 60; return geo(circularState(mission.orbit, t).r, t);});
   }
   flightHud.update(now);
+  updateDriveHud();
   walk(realDt);
   if (render) place(realDt);
   if (!hud.hidden && Math.floor(now / 250) !== Math.floor((now - realDt * 1000) / 250)) updateHud();
@@ -920,7 +1039,7 @@ Object.assign(window, {
   moonAscent: {
     ready: () => viewer.shaderErrors.length === 0,
     texturesLoaded: () => texturesLoaded,
-    debug: {mission, rover, audio, effects, argoFrame, ascentFrame, labels, lunarMap, markers, shadows, rings, rocks, viewer, hardware, terrain, fixture: fixturePost},
+    debug: {mission, buggy, tracks, audio, effects, argoFrame, ascentFrame, labels, lunarMap, markers, shadows, rings, rocks, viewer, hardware, terrain, fixture: fixturePost},
     /** Render one frame and return the canvas as a PNG data URL (read within the same task, so no preserveDrawingBuffer). */
     capture: () => {place(1 / 30); return viewer.renderer.domElement.toDataURL('image/png');},
     errors: () => viewer.shaderErrors,

@@ -13,6 +13,8 @@ export interface AudioFrame {
   throttle: number;
   rcsActive: boolean;
   warning: Warning;
+  /** Present while the buggy is being driven: engine note follows `rev` (0..1 of top speed), plus turbo and air state. */
+  drive?: {rev: number; turbo: boolean; airborne: boolean};
 }
 
 const midi = (n: number) => 440 * 2 ** ((n - 69) / 12);
@@ -149,11 +151,26 @@ export class GameAudio {
     src.start(at, Math.random() * 0.5); src.stop(at + duration + 0.02);
   }
 
+  /** A low impact thud for a hard landing or a collision; level 0..1. */
+  thump(level: number) {
+    if (!this.ctx || !this.enabled) return;
+    const now = this.ctx.currentTime;
+    this.tone(90, now, 0.28, 0.4 + 0.5 * level, 'sine', this.cabin, 32);
+    this.burst(now, 0.18, 0.12 + 0.2 * level, 260, this.cabin);
+  }
+
   update(frame: AudioFrame) {
     if (!this.ctx || !this.enabled) return;
     const ctx = this.ctx, now = ctx.currentTime;
-    this.engine.gain.setTargetAtTime(frame.throttle * 0.5, now, 0.08);
-    this.engineFilter.frequency.setTargetAtTime(120 + frame.throttle * 260, now, 0.1);
+    if (frame.drive) {
+      // Buggy motor: a rising whine that tracks speed, brighter and louder on turbo, quieter with the wheels in the air.
+      const d = frame.drive, air = d.airborne ? 0.35 : 1;
+      this.engine.gain.setTargetAtTime((0.14 + d.rev * 0.42 + (d.turbo ? 0.16 : 0)) * air, now, 0.06);
+      this.engineFilter.frequency.setTargetAtTime(110 + d.rev * 620 + (d.turbo ? 260 : 0), now, 0.05);
+    } else {
+      this.engine.gain.setTargetAtTime(frame.throttle * 0.5, now, 0.08);
+      this.engineFilter.frequency.setTargetAtTime(120 + frame.throttle * 260, now, 0.1);
+    }
     // A short soft thump on the leading edge of a thruster pulse, then a steady hiss while held — no machine-gun.
     if (frame.rcsActive && now - this.lastRcs > 0.25) {this.lastRcs = now; this.tone(150, now, 0.09, 0.06, 'sine', this.cabin, 90);}
     this.rcs.gain.setTargetAtTime(frame.rcsActive ? 0.06 : 0, now, 0.05);
@@ -178,7 +195,7 @@ export class GameAudio {
       return;
     }
     this.ended = false;
-    this.sequence(frame.phase, now);
+    this.sequence(frame.drive ? 'drive' : frame.phase, now);
   }
 
   /**
@@ -186,6 +203,7 @@ export class GameAudio {
    * a little while climbing or docked. Nothing harsh; it ducks during warnings and stops on a failure.
    */
   private sequence(phase: string, now: number) {
+    if (phase === 'drive') {this.driveGroove(now); return;}
     const bpm = phase === 'ascent' ? 104 : phase === 'docked' ? 112 : 92;
     this.beat = 60 / bpm;
     const busy = phase === 'ascent' || phase === 'docked';
@@ -206,6 +224,31 @@ export class GameAudio {
       this.tone(midi(note), Math.max(this.melodyAt, now), dur * 0.92, busy ? 0.09 : 0.07, 'triangle', this.music);
       if (busy) this.tone(midi(note + 12), Math.max(this.melodyAt, now), dur * 0.5, 0.02, 'sine', this.music); // faint octave sparkle
       this.melodyAt += dur;
+      this.melodyI++;
+    }
+  }
+
+  /**
+   * A driving groove for the buggy: a synth-rock loop in A minor at 126 bpm — an eighth-note bass pulse alternating
+   * A/E roots, a syncopated pentatonic pluck, and a soft pad. Deliberately unlike the Ode-to-Joy mission theme, so
+   * hitting Drive feels like changing the record.
+   */
+  private driveGroove(now: number) {
+    const beat = 60 / 126;
+    // Bass + pad on a two-beat grid (reusing the same scheduler state as the mission drone).
+    while (this.nextStep < now + 0.2) {
+      const t = Math.max(this.nextStep, now), s = this.step++;
+      const root = [45, 45, 52, 43][s % 4]; // A, A, E, G roots
+      for (let e = 0; e < 4; e++) this.tone(midi(root - 12), t + e * beat * 0.5, beat * 0.42, 0.12, 'sawtooth', this.music); // pulsing bass
+      this.pad(midi(root), t, beat * 2.1, 0.03, 'triangle', this.music);
+      this.nextStep = t + beat * 2;
+    }
+    // Pentatonic pluck riff on the offbeats.
+    const RIFF = [69, 72, 76, 72, 74, 72, 69, 67]; // A minor pentatonic phrase
+    if (this.melodyAt < now - 1) this.melodyAt = now + 0.1;
+    while (this.melodyAt < now + 0.2) {
+      this.tone(midi(RIFF[this.melodyI % RIFF.length]), Math.max(this.melodyAt, now), beat * 0.46, 0.06, 'square', this.music);
+      this.melodyAt += beat * 0.5;
       this.melodyI++;
     }
   }
