@@ -57,6 +57,16 @@ button:focus-visible, select:focus-visible { outline: 2px solid #8fe8ed; outline
 .warp-control button { padding: 6px 9px; line-height: 1; }
 .warp-control b { min-width: 40px; text-align: center; font-weight: 700; color: #cae6ee; }
 .warp-control b.fast { color: #ffcd73; }
+.nav-row { display: flex; gap: 7px; }.nav-row select { flex: 1; min-width: 0; }
+/* Drive-to target: a heading arrow, the mission name and the distance left, top-centre. */
+.target-hud { position: fixed; top: calc(112px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 7;
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px 7px 12px; background: #0a1016dd; border: 1px solid #ffd36b55; border-radius: 12px;
+  font: 12px ui-monospace, Menlo, monospace; color: #f0e2c0; box-shadow: 0 0 14px #ffd36b22; }
+.target-hud .th-arrow { font-size: 20px; color: #ffd36b; transition: transform .1s linear; text-shadow: 0 0 8px #ffd36b88; }
+.target-hud .th-text b { display: block; font-weight: 700; color: #ffe9b8; }
+.target-hud .th-text span { color: #c9b98a; font-size: 10px; }
+.target-hud .th-clear { padding: 4px 7px; font-size: 11px; color: #c9b98a; background: #ffffff10; border: 1px solid #ffffff26; border-radius: 8px; }
+@media (max-width: 700px) { .target-hud { top: auto; bottom: calc(150px + env(safe-area-inset-bottom)); font-size: 10px; } }
 .throttle-control { display: flex; gap: 6px; align-items: center; margin-top: 10px; font-size: 9px; }.throttle-control input { flex: 1; min-width: 0; accent-color: #80e0d5; }
 .assist-control { display: flex; align-items: center; gap: 6px; font-size: 9px; margin-top: 4px; }.mission-panel p { margin: 8px 0 0; font-size: 9px; color: #7d9aa8; }
 .green { color: #91efc3 !important; }.amber { color: #f5c879 !important; }.red { color: #ff9987 !important; }button:disabled { opacity: .4; cursor: default; }

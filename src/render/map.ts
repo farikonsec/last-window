@@ -22,6 +22,8 @@ export class LunarMap {
   track: {lat: number; lon: number}[] = [];
   /** When set, the local map recenters on this point and zooms in, so a driven vehicle's motion is visible. */
   follow: {lat: number; lon: number} | null = null;
+  /** A navigation target highlighted with a ring and a bearing line from the live position. */
+  target: {lat: number; lon: number; name: string} | null = null;
   /** Half-extent, metres, of the zoomed local view while following (5 km box shows the buggy actually moving). */
   followHalf = 2500;
   /** Half-extent, metres, of the static local view (scroll to zoom). */
@@ -155,6 +157,24 @@ export class LunarMap {
       }
     }
     const me = this.toCanvas(camera.lat, camera.lon);
+    // Navigation target: a bearing line from the live position toward it, and a yellow ring (or an edge chevron if it
+    // is off this view). Works on both the local and whole-Moon maps.
+    if (this.target && me) {
+      const t = this.toCanvas(this.target.lat, this.target.lon);
+      g.strokeStyle = '#ffd36b'; g.lineWidth = 1.2; g.setLineDash([5, 4]);
+      g.beginPath(); g.moveTo(me[0], me[1]);
+      if (t) g.lineTo(t[0], t[1]);
+      else {
+        const ang = Math.atan2(this.target.lon - camera.lon, this.target.lat - camera.lat); // rough on-canvas direction
+        g.lineTo(me[0] + Math.sin(ang) * 40, me[1] - Math.cos(ang) * 40);
+      }
+      g.stroke(); g.setLineDash([]);
+      if (t) {
+        g.strokeStyle = '#ffd36b'; g.lineWidth = 1.6;
+        g.beginPath(); g.arc(t[0], t[1], 6, 0, Math.PI * 2); g.stroke();
+        g.beginPath(); g.arc(t[0], t[1], 2, 0, Math.PI * 2); g.fillStyle = '#ffd36b'; g.fill();
+      }
+    }
     if (me) {
       // Live position: a bold red heading arrow with a dark outline and a soft glow so it stands out on any terrain.
       g.save();

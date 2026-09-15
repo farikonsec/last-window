@@ -13,6 +13,7 @@ import {bodyToInertial, circularState, inertialToBody, surfaceVelocity} from './
 import {LabelLayer, type LabelItem} from './render/labels';
 import {LunarMap} from './render/map';
 import {PLACES, hadleyLandforms} from './sim/atlas';
+import {PROBES, type Probe, bearing as greatCircleBearing, surfaceDistance} from './sim/probes';
 import {R_MOON} from './sim/constants';
 import {angularDiameter, apply, bodiesAt, EARTH_RADIUS, earthPhase, moonFixedToEqj, skyAt, topocentric} from './sim/ephemeris';
 import {latLonToUnit} from './sim/orbit';
@@ -320,6 +321,7 @@ if (params.get('buggy') === 'rollover') Object.assign(buggy, {flipped: true, rol
 if (params.get('buggy') === 'flight') Object.assign(buggy, {airborne: true, altitude: 120, vVert: 12, speed: 18, roll: 0.18});
 let wheelSpin = 0, sprayAt = 0, rockImpactAt = -Infinity;
 const driveTrail: {lat: number; lon: number}[] = []; // breadcrumb of where the buggy has driven, for the zoomed map
+let geoLatLon = {lat: 26.13, lon: 3.63}; // the camera's current sub-point, updated each frame for target bearings
 let driving = params.get('scenario') === 'rover' || params.get('scenario') === 'drive';
 let chaseDistance = 30;
 let argoCamDistance = 80;
@@ -555,10 +557,12 @@ for (const [i, p] of [...PLACES.filter(p => p.id !== 'apollo15'), ...landforms].
 labelItems.push({id: 'argo', text: 'ARGO · orbital mothership', note: 'Crew return vehicle · 100 km circular orbit', icon: '◇', kind: 'hardware', rank: 12,
   range: 5_000_000, occluded: () => viewName === 'docking', position: () => apply(sky.mciToEqj, mission.argo.r)});
 const labels = new LabelLayer(app, labelItems);
+const probeKindMap: Record<string, string> = {crewed: 'apollo', rover: 'rover', lander: 'lander', impact: 'other', crash: 'other'};
 const markers = [
   ...HADLEY_HARDWARE.map(p => ({id: p.name, name: equipment[p.name][0], lat: p.lat, lon: p.lon, kind: p.name === 'kestrel' ? 'base' : 'hardware'})),
   ...PLACES.map(p => ({...p})),
   ...landforms.map((p, i) => ({...p, id: `landform-${i}`})),
+  ...PROBES.map(p => ({id: `probe-${p.id}`, name: p.name, lat: p.lat, lon: p.lon, kind: probeKindMap[p.kind]})),
 ];
 const argoMarker = {id: 'argo', name: 'ARGO / orbit', lat: 0, lon: 0, kind: 'base'};
 markers.push(argoMarker);
@@ -570,7 +574,8 @@ controls.innerHTML = `<strong>LAST WINDOW <small>HADLEY EXPEDITION / 2031</small
   <div><select aria-label="Camera view" id="camera-view" title="Switch camera view: cockpit, chase, docking sight, ARGO orbit, rover chase and fixed scenic angles">${['pad','chase','cockpit','docking','argo','rover','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
   <button id="label-mode" title="Cycle on-screen labels: smart (declutters by range) → all → off [L]">Labels: smart [L]</button><button id="map-mode" title="Cycle the map: local hillshade → whole Moon → off [M]">Map: local [M]</button><button id="sound" title="Toggle music and sound effects [P]">Sound: off [P]</button><button id="autopilot" title="Fly the current mission automatically: fast-forwards to the launch window, then flies ascent, rendezvous and docking [Y]">Autopilot: off [Y]</button><button id="mode-ascent" title="Ascent mission: launch from the pad and fly up to a 100 km orbit to dock with ARGO">Ascent ↑</button><button id="mode-descent" title="Descent mission: start in orbit and fly a powered descent to a soft landing">Descent ↓</button><button id="drive" title="Take control of the surface buggy: W accelerate, S brake/reverse, A/D steer, Shift turbo; airborne it becomes a rocket flyer">Drive buggy</button>
   <span class="warp-control" title="Time acceleration for coasting and waits: 1× real time up to 1000×. Keys [ and ] also work. Forced to 1× while flying an engine burn or driving."><button id="warp-dn" aria-label="Slower">−</button><b id="warp-val">1×</b><button id="warp-up" aria-label="Faster">+</button></span></div>
-  <select aria-label="Inspect equipment" id="inspect-equipment" title="Jump the camera to a piece of hardware on the surface"><option value="">Inspect equipment…</option>${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</select>`;
+  <div class="nav-row"><select aria-label="Inspect equipment" id="inspect-equipment" title="Jump the camera to a piece of hardware on the surface"><option value="">Inspect equipment…</option>${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</select>
+  <select aria-label="Drive-to target" id="target" title="Pick a real lunar mission anywhere on the Moon as a navigation target: the map and an on-screen arrow point to it with the distance left"><option value="">Set target…</option>${PROBES.map(p => `<option value="${p.id}">${p.name} · ${p.agency} ${p.year}</option>`).join('')}</select></div>`;
 app.appendChild(controls);
 const cameraSelect = controls.querySelector<HTMLSelectElement>('#camera-view')!;
 cameraSelect.value = viewName;
@@ -602,6 +607,36 @@ function setDriving(on: boolean) {
 }
 driveBtn.onclick = () => setDriving(!driving);
 cameraSelect.onchange = () => {viewName = cameraSelect.value as ViewName; rig = makeRig(viewName);};
+
+// Drive-to target: pick any real mission on the Moon; the map and an on-screen arrow point to it with distance left.
+let target: Probe | null = null;
+const targetSelect = controls.querySelector<HTMLSelectElement>('#target')!;
+const targetHud = document.createElement('div');
+targetHud.className = 'target-hud';
+targetHud.hidden = true;
+targetHud.innerHTML = '<div class="th-arrow">➤</div><div class="th-text"><b></b><span></span></div><button class="th-clear" title="Clear target">✕</button>';
+app.appendChild(targetHud);
+const thArrow = targetHud.querySelector<HTMLElement>('.th-arrow')!;
+const thName = targetHud.querySelector<HTMLElement>('.th-text b')!;
+const thDist = targetHud.querySelector<HTMLElement>('.th-text span')!;
+function setTarget(p: Probe | null) {
+  target = p;
+  targetSelect.value = p ? p.id : '';
+  lunarMap.target = p ? {lat: p.lat, lon: p.lon, name: p.name} : null;
+  targetHud.hidden = !p;
+}
+targetSelect.onchange = () => setTarget(PROBES.find(p => p.id === targetSelect.value) ?? null);
+targetHud.querySelector<HTMLButtonElement>('.th-clear')!.onclick = () => setTarget(null);
+function updateTargetHud() {
+  if (!target) {targetHud.hidden = true; return;}
+  targetHud.hidden = false;
+  const from = driving ? {lat: buggy.lat, lon: buggy.lon, heading: buggy.heading} : {lat: geoLatLon.lat, lon: geoLatLon.lon, heading: rig.az * Math.PI / 180};
+  const dist = surfaceDistance(from.lat, from.lon, target.lat, target.lon);
+  const rel = greatCircleBearing(from.lat, from.lon, target.lat, target.lon) - from.heading;
+  thArrow.style.transform = `rotate(${rel}rad)`;
+  thName.textContent = `▸ ${target.name}`;
+  thDist.textContent = dist < 1000 ? `${dist.toFixed(0)} m · ${target.agency} ${target.year}` : `${(dist / 1000).toFixed(dist < 100_000 ? 1 : 0)} km left · ${target.agency} ${target.year}`;
+}
 const changeLabels = () => {labels.mode = labels.mode === 'smart' ? 'all' : labels.mode === 'all' ? 'off' : 'smart';};
 controls.querySelector<HTMLButtonElement>('#label-mode')!.onclick = changeLabels;
 controls.querySelector<HTMLButtonElement>('#map-mode')!.onclick = () => lunarMap.cycle();
@@ -970,6 +1005,7 @@ function place(realDt: number) {
   }
   labels.update(viewer.camera, cameraEqj, rings.altitude);
   const geo = terrain.fromLocal(local.x, local.y);
+  geoLatLon = geo;
   if (driving) {
     // Follow the buggy on a zoomed map with a breadcrumb trail, so its movement is actually visible.
     lunarMap.follow = {lat: buggy.lat, lon: buggy.lon};
@@ -988,6 +1024,7 @@ function place(realDt: number) {
   controls.querySelector('#map-mode')!.textContent = `Map: ${lunarMap.mode} [M]`;
   warpVal.textContent = `${warp}×`;
   warpVal.classList.toggle('fast', warp > 1);
+  updateTargetHud();
 }
 
 /** 1 when an MCI point is in sunlight, 0 inside the Moon's shadow cylinder. */
