@@ -275,9 +275,11 @@ export class Buggy {
     const excess = Math.max(0, Math.abs(latAcc) - aTip);
     // Lateral load tips it outward past the limit; gravity restores it below the balance angle and assists over it.
     this.rollRate += (-Math.sign(latAcc || 1) * excess / BUGGY.cgHeight) * dt;
-    const gravTerm = Math.abs(this.roll) < tipAngle ? -this.roll : Math.sign(this.roll);
-    this.rollRate += gravTerm * (BUGGY.gravity / BUGGY.cgHeight) * dt;
-    this.rollRate *= Math.max(0, 1 - 2.4 * dt);
+    // Below the balance angle gravity rights it (and damping settles it); past it gravity commits the roll all the way
+    // over with no damping, so it never stalls balanced on two wheels — it flips fully, then the crew right it.
+    const overTip = Math.abs(this.roll) >= tipAngle;
+    this.rollRate += (overTip ? Math.sign(this.roll) : -this.roll) * (BUGGY.gravity / BUGGY.cgHeight) * dt;
+    if (!overTip) this.rollRate *= Math.max(0, 1 - 2.4 * dt);
     this.roll += this.rollRate * dt;
     if (Math.abs(this.roll) > Math.PI / 2) {
       // The side hits the ground and stops dead instead of continuing through it.

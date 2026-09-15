@@ -46,6 +46,17 @@ button:focus-visible, select:focus-visible { outline: 2px solid #8fe8ed; outline
 .flight-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; border-block: 1px solid #769daf33; padding: 8px 0; }
 .flight-grid small { display: block; color: #8da6b5; font-size: 8px; }.flight-grid b { font-size: 13px; font-weight: 500; }
 .resources { margin: 9px 0; font-size: 10px; color: #afc6d0; }.flight-actions { display: flex; gap: 5px; }.flight-actions button { font-size: 10px; }
+/* Big, unmissable LAUNCH button: red and pulsing until the window is green, then green. */
+.launch-btn { width: 100%; margin: 8px 0 4px; padding: 13px; font: 800 16px ui-monospace, Menlo, monospace; letter-spacing: 3px;
+  color: #fff; background: linear-gradient(#e8402f, #a81d12); border: 1px solid #ff6a58; border-radius: 8px; box-shadow: 0 0 14px #ff412899; cursor: pointer; }
+.launch-btn.amber { background: linear-gradient(#e8902f, #a8621d); border-color: #ffb058; box-shadow: 0 0 14px #ffa02899; }
+.launch-btn.green { color: #05120b; background: linear-gradient(#8affc0, #23c46e); border-color: #8affc0; box-shadow: 0 0 20px #23e07ccc; animation: launchpulse 1s ease-in-out infinite; }
+@keyframes launchpulse { 0%, 100% { box-shadow: 0 0 14px #23e07c88; } 50% { box-shadow: 0 0 26px #23e07c; } }
+.launch-btn:disabled { opacity: .5; box-shadow: none; animation: none; }
+.warp-control { display: inline-flex; align-items: center; gap: 4px; }
+.warp-control button { padding: 6px 9px; line-height: 1; }
+.warp-control b { min-width: 40px; text-align: center; font-weight: 700; color: #cae6ee; }
+.warp-control b.fast { color: #ffcd73; }
 .throttle-control { display: flex; gap: 6px; align-items: center; margin-top: 10px; font-size: 9px; }.throttle-control input { flex: 1; min-width: 0; accent-color: #80e0d5; }
 .assist-control { display: flex; align-items: center; gap: 6px; font-size: 9px; margin-top: 4px; }.mission-panel p { margin: 8px 0 0; font-size: 9px; color: #7d9aa8; }
 .green { color: #91efc3 !important; }.amber { color: #f5c879 !important; }.red { color: #ff9987 !important; }button:disabled { opacity: .4; cursor: default; }

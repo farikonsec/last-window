@@ -361,7 +361,7 @@ export class TerrainRings {
           radiance += albedo * earthshine * max(dot(n, earthDir), 0.0);
           // Light bounced off nearby sunlit regolith: a few percent of direct sun, the only thing that keeps crater
           // shadows from being pure black on camera. Scales with how high the Sun stands.
-          radiance += albedo * 0.035 * clamp(sunLocal.z * 2.0, 0.0, 1.0) * (1.0 - lit * 0.7);
+          radiance += albedo * 0.06 * clamp(sunLocal.z * 2.5, 0.0, 1.0) * (1.0 - lit * 0.7);
           gl_FragColor = vec4(radiance * exposure, 1.0);
           // Debug views (?debug=): 1 albedo, 2 shading normal, 3 field shadow, 4 sun-map shadow, 5 geometric normal.
           if (debugMode == 1) gl_FragColor = vec4(albedo * 2.5, 1.0);

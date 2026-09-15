@@ -254,13 +254,13 @@ export class Mission {
     }
     if (this.state.status === 'docked') return;
     const firing = this.launched && (this.assisted ? this.guidance.command.throttle > 0 || this.guidance.command.rotate.some(x => Math.abs(x) > 0.001) : this.throttle > 0 || this.rotation.some(x => x !== 0) || this.translation.some(x => x !== 0));
-    this.effectiveWarp = firing || (this.launched && this.range < 5000) ? 1 : Math.min(100, Math.max(1, requestedWarp));
+    this.effectiveWarp = firing || (this.launched && this.range < 5000) ? 1 : Math.min(1000, Math.max(1, requestedWarp));
     if (!this.launched) {
       this.advanceParked(Math.max(0, realDt) * this.effectiveWarp);
       return;
     }
     // Budget work, never skip physics time. Excess time slows the simulation rather than enlarging dt.
-    this.accumulator = Math.min(5, this.accumulator + Math.max(0, realDt) * this.effectiveWarp);
+    this.accumulator = Math.min(12, this.accumulator + Math.max(0, realDt) * this.effectiveWarp);
     while (this.accumulator + 1e-10 >= FLIGHT_DT) {
       const previous = this.state;
       const command: ActuatorCommand = this.assisted ? this.guidance.command : {

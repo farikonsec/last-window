@@ -40,7 +40,8 @@ export class MissionHud {
     this.panel.className = 'mission-panel';
     this.panel.innerHTML = `<header>KESTREL / FLIGHT COMPUTER <span>MANUAL</span></header>
       <div class="flight-readouts" aria-live="off"></div>
-      <div class="flight-actions"><button data-action="wait">Wait to T−30 s</button><button data-action="launch">LAUNCH</button><button data-action="reset">Reset</button></div>
+      <button data-action="launch" class="launch-btn">🚀 LAUNCH</button>
+      <div class="flight-actions"><button data-action="wait">Wait to T−30 s</button><button data-action="reset">Reset</button></div>
       <label class="throttle-control">THROTTLE <input aria-label="Main engine throttle" type="range" min="0" max="100" value="0"><output>0%</output></label>
       <div class="attitude-modes" role="group" aria-label="Attitude aid">${(['free', 'stabilize', 'dock', 'match', 'prograde', 'retrograde'] as AttitudeMode[]).map(mode => `<button data-attitude="${mode}">${{free: 'FREE', stabilize: 'HOLD [Q]', dock: 'DOCK [E]', match: 'MATCH [G]', prograde: 'PROGRADE', retrograde: 'RETRO [R]'}[mode]}</button>`).join('')}</div>
       <label class="assist-control"><input type="checkbox"> Reference guidance (automatic demo)</label>
@@ -156,7 +157,8 @@ export class MissionHud {
     this.panel.querySelector<HTMLButtonElement>('[data-action=wait]')!.disabled = m.launched || !!m.result || (m.countdown >= 0 && m.countdown <= 30);
     const launch = this.panel.querySelector<HTMLButtonElement>('[data-action=launch]')!;
     launch.disabled = m.launched || !!m.result;
-    launch.className = m.windowBand;
+    launch.className = `launch-btn ${m.windowBand}`;
+    launch.hidden = m.launched || !!m.result;
     this.panel.querySelector('[data-action=wait]')!.textContent = m.countdown < 0 ? 'Next window' : 'Wait to T−30 s';
     this.panel.querySelectorAll<HTMLButtonElement>('[data-attitude]').forEach(b => b.classList.toggle('active', b.dataset.attitude === m.attitudeMode));
     // Compact strip: status/countdown, the one-line cue, and either LAUNCH (pre-flight) or the attitude aids (in flight).

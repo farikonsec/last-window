@@ -243,11 +243,16 @@ function makeRig(name: ViewName): LookRig {
       const up = () => unit(at(buggy.lat, buggy.lon, 0));
       const rig = lookRig(target, up, 0, -12, 60);
       rig.position = () => {
-        // Pull back and lift a little as speed rises, for a sense of rush; never below the ground between it and the car.
+        // Pull back and lift a little as speed rises, for a sense of rush.
         const back = 9 + Math.min(24, Math.abs(buggy.speed) * 0.32);
         const behind = buggy.offset(-back);
-        const floor = Math.max(terrain.height(behind.lat, behind.lon), terrain.height(buggy.lat, buggy.lon)) + buggy.altitude;
-        return at(behind.lat, behind.lon, floor + 3.4 + Math.min(3, Math.abs(buggy.speed) * 0.03));
+        const lift = 3.4 + Math.min(3, Math.abs(buggy.speed) * 0.03);
+        // Airborne: frame it against its own smooth chassis height — sampling terrain under a fast, high buggy makes
+        // the height jump frame to frame and shakes the whole view. On the ground, keep clear of a rise behind it.
+        const height = buggy.airborne
+          ? buggy.chassisHeight(terrain) + lift
+          : Math.max(terrain.height(behind.lat, behind.lon), terrain.height(buggy.lat, buggy.lon)) + buggy.altitude + lift;
+        return at(behind.lat, behind.lon, height);
       };
       rig.look = () => ({forward: sub(target(), rig.position()), up: up()});
       return rig;
@@ -381,7 +386,11 @@ function placeBuggy() {
       terrainRise = Math.max(terrainRise, h(sample.lat, sample.lon) - centreH);
     }
   }
-  const contactLift = buggy.airborne ? 0 : buggyContactLift(buggy.roll, terrainRise);
+  // Normal driving (roll ~0) needs no hull lift — the wheels handle contact, so it never floats on a slope. Once a
+  // real rollover is underway, lift by the FULL rendered roll (terrain tilt included) plus a margin, so no part of a
+  // capsized buggy can sink through sloped or cratered ground.
+  const rolledOver = buggy.flipped || Math.abs(buggy.roll) > 0.3;
+  const contactLift = buggy.airborne ? 0 : buggyContactLift(rolledOver ? Math.abs(roll) : Math.abs(buggy.roll), terrainRise) + (rolledOver ? 0.12 : 0);
   holder.matrix.copy(hardware.placementMatrix({
     name: 'buggy', url: '', lat: buggy.lat, lon: buggy.lon, heading: buggy.heading * 180 / Math.PI,
     lift: buggy.altitude + contactLift, pitch, roll,
@@ -520,7 +529,7 @@ function updateDriveHud() {
   dhTurboText.textContent = buggy.airborne || buggy.flipped ? 'FLIGHT PROP' : 'TURBO · hold Shift';
   dhHelp.innerHTML = buggy.flipped ? '<strong>RECOVERY</strong> Hold R · fire side jets to roll upright'
     : buggy.airborne ? '<strong>VACUUM FLIGHT</strong> W/S forward/retro · A/D turn + bank · R climb · F descend · Shift boost'
-      : '<strong>DRIVE</strong> W/S motor & brake · A/D steer · Shift turbo';
+      : '<strong>DRIVE</strong> W/S motor & brake · A/D steer · Shift turbo · <span class="dim">R/F fly only once airborne</span>';
 }
 const labelRay = new T.Raycaster();
 const hardwareOccluded = (name: string, target: V3) => {
@@ -559,7 +568,8 @@ controls.className = 'nav-controls';
 controls.setAttribute('aria-label', 'Surface navigation');
 controls.innerHTML = `<strong>LAST WINDOW <small>HADLEY EXPEDITION / 2031</small></strong>
   <div><select aria-label="Camera view" id="camera-view" title="Switch camera view: cockpit, chase, docking sight, ARGO orbit, rover chase and fixed scenic angles">${['pad','chase','cockpit','docking','argo','rover','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
-  <button id="label-mode" title="Cycle on-screen labels: smart (declutters by range) → all → off [L]">Labels: smart [L]</button><button id="map-mode" title="Cycle the map: local hillshade → whole Moon → off [M]">Map: local [M]</button><button id="sound" title="Toggle music and sound effects [P]">Sound: off [P]</button><button id="autopilot" title="Fly the current mission automatically: fast-forwards to the launch window, then flies ascent, rendezvous and docking [Y]">Autopilot: off [Y]</button><button id="mission-mode" title="Switch between the ascent mission (launch from the pad to ARGO) and the descent mission (land from orbit)">Mission: ascent</button><button id="drive" title="Take control of the surface buggy: W accelerate, S brake/reverse, A/D steer, Shift turbo; airborne it becomes a rocket flyer">Drive buggy</button></div>
+  <button id="label-mode" title="Cycle on-screen labels: smart (declutters by range) → all → off [L]">Labels: smart [L]</button><button id="map-mode" title="Cycle the map: local hillshade → whole Moon → off [M]">Map: local [M]</button><button id="sound" title="Toggle music and sound effects [P]">Sound: off [P]</button><button id="autopilot" title="Fly the current mission automatically: fast-forwards to the launch window, then flies ascent, rendezvous and docking [Y]">Autopilot: off [Y]</button><button id="mode-ascent" title="Ascent mission: launch from the pad and fly up to a 100 km orbit to dock with ARGO">Ascent ↑</button><button id="mode-descent" title="Descent mission: start in orbit and fly a powered descent to a soft landing">Descent ↓</button><button id="drive" title="Take control of the surface buggy: W accelerate, S brake/reverse, A/D steer, Shift turbo; airborne it becomes a rocket flyer">Drive buggy</button>
+  <span class="warp-control" title="Time acceleration for coasting and waits: 1× real time up to 1000×. Keys [ and ] also work. Forced to 1× while flying an engine burn or driving."><button id="warp-dn" aria-label="Slower">−</button><b id="warp-val">1×</b><button id="warp-up" aria-label="Faster">+</button></span></div>
   <select aria-label="Inspect equipment" id="inspect-equipment" title="Jump the camera to a piece of hardware on the surface"><option value="">Inspect equipment…</option>${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</select>`;
 app.appendChild(controls);
 const cameraSelect = controls.querySelector<HTMLSelectElement>('#camera-view')!;
@@ -572,9 +582,15 @@ function toggleAutopilot(on = !autopilotOn) {
 }
 autopilotBtn.onclick = () => toggleAutopilot();
 // Switch between the two missions: fly up from the pad to ARGO, or down from orbit to a landing.
-const modeBtn = controls.querySelector<HTMLButtonElement>('#mission-mode')!;
-modeBtn.textContent = `Mission: ${mission.mode === 'descent' ? 'descent' : 'ascent'}`;
-modeBtn.onclick = () => {location.href = location.pathname + (mission.mode === 'descent' ? '?view=pad&scenario=window-open' : '?scenario=descent');};
+const ascentBtn = controls.querySelector<HTMLButtonElement>('#mode-ascent')!;
+const descentBtn = controls.querySelector<HTMLButtonElement>('#mode-descent')!;
+ascentBtn.classList.toggle('view-active', mission.mode !== 'descent');
+descentBtn.classList.toggle('view-active', mission.mode === 'descent');
+ascentBtn.onclick = () => {if (mission.mode !== 'descent') return; location.href = location.pathname + '?view=pad&scenario=window-open';};
+descentBtn.onclick = () => {if (mission.mode === 'descent') return; location.href = location.pathname + '?scenario=descent';};
+const warpVal = controls.querySelector<HTMLElement>('#warp-val')!;
+controls.querySelector<HTMLButtonElement>('#warp-dn')!.onclick = () => {warp = Math.max(1, warp / 10);};
+controls.querySelector<HTMLButtonElement>('#warp-up')!.onclick = () => {warp = Math.min(1000, warp * 10);};
 const driveBtn = controls.querySelector<HTMLButtonElement>('#drive')!;
 function setDriving(on: boolean) {
   driving = on;
@@ -651,7 +667,7 @@ addEventListener('keydown', e => {
   if (e.key.toLowerCase() === 'y') toggleAutopilot();
   held.add(e.key.toLowerCase());
   if (e.key === '[') warp = Math.max(1, warp / 10);
-  if (e.key === ']') warp = Math.min(100, warp * 10);
+  if (e.key === ']') warp = Math.min(1000, warp * 10);
   if (e.key === 'x') stars.mode = stars.mode === 'real' ? 'bright' : stars.mode === 'bright' ? 'off' : 'real';
   if (e.key === 'h') hud.hidden = !hud.hidden;
   const views: ViewName[] = ['pad', 'apollo', 'site', 'rille', 'lander-up', 'hover', 'orbit', 'globe'];
@@ -703,7 +719,7 @@ sheetBackdrop.addEventListener('pointerdown', () => setSheet(false));
 sheet.querySelector<HTMLButtonElement>('.sheet-close')!.onclick = () => setSheet(false);
 // Picking a camera, launching or switching mission drops you straight back into the view.
 sheet.addEventListener('click', e => {
-  if ((e.target as HTMLElement).closest('#camera-view, [data-action=launch], [data-action=reset], #mission-mode, #drive, [data-attitude]')) setSheet(false);
+  if ((e.target as HTMLElement).closest('#camera-view, [data-action=launch], [data-action=reset], #mode-ascent, #mode-descent, #drive, [data-attitude]')) setSheet(false);
 });
 flightHud.onMenu = () => setSheet(!sheetOpen);
 
@@ -970,6 +986,8 @@ function place(realDt: number) {
   }
   controls.querySelector('#label-mode')!.textContent = `Labels: ${labels.mode} [L]`;
   controls.querySelector('#map-mode')!.textContent = `Map: ${lunarMap.mode} [M]`;
+  warpVal.textContent = `${warp}×`;
+  warpVal.classList.toggle('fast', warp > 1);
 }
 
 /** 1 when an MCI point is in sunlight, 0 inside the Moon's shadow cylinder. */
@@ -1077,6 +1095,7 @@ function tick(realDt: number, now: number, render = true) {
     wheelSpin += (buggy.speed * step) / 0.52; // roll the wheels (tyre radius 0.52 m)
     driveEffects(step);
   }
+  if (driving) warp = 1; // never warp world time while hand-driving the buggy — it would desync from real-time control
   if (autopilotOn) warp = stepAutopilot();
   else if (mission.launched) {
     if (viewName !== 'argo' && held.has('arrowup')) mission.throttle = Math.min(1, mission.throttle + realDt * 0.35);
