@@ -1,24 +1,29 @@
 import {CommandBus, NO_COMMAND, type ActuatorCommand} from './bus';
 import {classifyContact, sweptSpheresHit, type DockingOutcome} from './docking';
 import {ascentGuidance, attitudeHold, DEFAULT_ASCENT} from './guidance';
-import {circularState, inertialToBody, summarizeOrbit} from './orbit';
-import {MU} from './constants';
+import {circularState, inertialToBody, summarizeOrbit, surfaceVelocity} from './orbit';
+import {MU, R_MOON} from './constants';
 import {brakingLimit, meanMotion, predictApproach, toLvlh} from './relative';
 import {KESTREL, MOTHERSHIP, stepVehicle, type Environment, type VehicleState} from './vehicle';
 import {FLIGHT_DT, landedAt, mothershipOrbit, solveLaunchWindow} from './window';
 import {add, cross, dot, len, quatFromUpForward, rotate, scale, sub, unit, type V3} from './vec';
 
-export type MissionResult = 'surface-impact' | 'landed-back' | 'collision' | 'power-loss' | 'escape' | null;
+export type MissionResult = 'surface-impact' | 'landed-back' | 'touchdown' | 'collision' | 'power-loss' | 'escape' | null;
+/** Which way the mission runs: up from the pad to ARGO, or down from orbit to the surface. */
+export type MissionMode = 'ascent' | 'descent';
 /**
  * Pilot aids for attitude only (throttle and translation stay manual):
  * free = raw RCS, stabilize = null body rates when the stick is released, dock = port toward ARGO along V-bar,
- * match = thrust axis against the velocity relative to ARGO, prograde = thrust axis along orbital velocity.
+ * match = thrust axis against the velocity relative to ARGO, prograde = thrust axis along orbital velocity,
+ * retrograde = thrust axis against it (the braking attitude for a descent, which points the engine down-track and
+ * then straight down as the fall steepens).
  */
-export type AttitudeMode = 'free' | 'stabilize' | 'dock' | 'match' | 'prograde';
+export type AttitudeMode = 'free' | 'stabilize' | 'dock' | 'match' | 'prograde' | 'retrograde';
 
 export const RESULT_TEXT: Record<Exclude<MissionResult, null>, {title: string; detail: string}> = {
   'surface-impact': {title: 'SURFACE IMPACT', detail: 'KESTREL hit the Moon faster than its legs can absorb.'},
   'landed-back': {title: 'BACK ON THE SURFACE', detail: 'The ascent stage came down intact but never reached orbit.'},
+  'touchdown': {title: 'TOUCHDOWN · HADLEY', detail: 'KESTREL is down intact and standing. The expedition has its base.'},
   'collision': {title: 'COLLISION WITH ARGO', detail: 'The two ships met outside the docking corridor.'},
   'power-loss': {title: 'POWER LOSS', detail: 'Batteries ran flat; the flight computer shut down.'},
   'escape': {title: 'LOST TO SPACE', detail: 'KESTREL reached lunar escape velocity. ARGO cannot follow.'},
@@ -61,6 +66,7 @@ export class Mission {
   rotation: V3 = [0, 0, 0];
   translation: V3 = [0, 0, 0];
   attitudeMode: AttitudeMode = 'stabilize';
+  mode: MissionMode = 'ascent';
   /** Relative speed at the moment of a terminal contact, for the debrief. */
   impactSpeed = 0;
   assisted = false;
@@ -127,6 +133,33 @@ export class Mission {
   }
   get guidance() {return ascentGuidance(KESTREL, this.state, this.target, this.liftoffTime);}
 
+  /**
+   * Powered-descent guidance. Pure retrograde braking falls out of the sky long before the orbital speed is gone, so
+   * the thrust is pitched up by exactly the amount needed to hold a target sink rate, and everything left over goes
+   * into killing ground speed. Returns the direction the engine should point and the throttle that realises it.
+   */
+  get descentGuidance(): {direction: V3; throttle: number} {
+    const s = this.state, up = unit(s.r);
+    // Brake toward the velocity of the ground itself: the Moon's surface moves ~4 m/s, and a landing that nulls
+    // inertial velocity still arrives sideways fast enough to break the legs.
+    const rel = sub(s.v, surfaceVelocity(s.r));
+    const vertical = dot(rel, up), horizontal = sub(rel, scale(up, vertical));
+    const speed = len(horizontal);
+    const agl = Math.max(0, len(s.r) - this.env.surfaceRadius(unit(inertialToBody(s.r, s.t))));
+    const g = MU / dot(s.r, s.r);
+    const mass = KESTREL.dryMass + s.mainPropellant + s.rcsPropellant;
+    const aMax = KESTREL.mainThrust / mass;
+    // Sink rate target shrinks with height; the vertical term both cancels gravity and corrects toward it.
+    const targetSink = Math.max(1.0, Math.min(45, agl / 18));
+    const aVert = Math.min(aMax * 0.98, g + (-targetSink - vertical) * 0.3);
+    // Whatever thrust is left after holding altitude brakes the ground speed, easing off as it runs out.
+    const spare = Math.sqrt(Math.max(0, aMax * aMax - aVert * aVert));
+    const aBrake = Math.min(spare, Math.max(0, speed) * 0.35 + 0.05);
+    const desired = add(scale(up, aVert), speed > 0.05 ? scale(unit(horizontal), -aBrake) : [0, 0, 0]);
+    const need = len(desired);
+    return {direction: need > 1e-6 ? unit(desired) : up, throttle: Math.max(0, Math.min(1, (need * mass) / KESTREL.mainThrust))};
+  }
+
   launch() {
     if (this.launched || this.result || this.state.batteryKWh <= 0) return false;
     this.launched = true;
@@ -139,6 +172,37 @@ export class Mission {
   }
 
   /** Repeatable terminal-approach fixture used by the scenario deep link and browser tests. */
+  /**
+   * Powered-descent initiation: KESTREL sits at the 15 km periapsis of a 15 x 100 km orbit, a few hundred km up-track
+   * of the pad, flying engine-first along the retrograde so the pilot can brake straight into the landing. This is the
+   * Apollo PDI geometry: roughly 1.7 km/s of horizontal speed to kill before touchdown.
+   */
+  startDescent(leadDistance = 420_000, altitude = 15_000) {
+    const target = landedAt(this.site, this.state.t, KESTREL, [0, 0, 1], this.env).r;
+    const n = unit(this.orbit.normal);
+    const radial = unit(target);
+    const inPlane = unit(sub(radial, scale(n, dot(radial, n))));
+    const along = unit(cross(n, inPlane));              // direction of travel passing over the site
+    const theta = leadDistance / R_MOON;
+    const startDir = unit(sub(scale(inPlane, Math.cos(theta)), scale(along, Math.sin(theta))));
+    const r0 = scale(startDir, R_MOON + altitude);
+    const apo = R_MOON + 100_000, a = (len(r0) + apo) / 2;
+    const v0 = scale(unit(cross(n, unit(r0))), Math.sqrt(MU * (2 / len(r0) - 1 / a)));
+    this.mode = 'descent';
+    this.state = {...this.state, r: r0, v: v0, q: quatFromUpForward(unit(scale(v0, -1)), unit(r0)), w: [0, 0, 0],
+      status: 'flying', mainPropellant: KESTREL.mainPropellantCapacity, rcsPropellant: KESTREL.rcsPropellantCapacity};
+    this.launched = true;
+    this.liftoffTime = this.state.t;
+    this.throttle = 0;
+    this.assisted = false;
+    this.attitudeMode = 'stabilize';
+    this.result = null;
+    this.dockingOutcome = null;
+    this.dockingContact = null;
+    this.captureRemaining = 0;
+    this.accumulator = 0;
+  }
+
   placeForDocking(range = 25, closing = 0.1, radial = 0, normal = 0) {
     const a = this.argo, up = unit(a.r), along = unit(a.v), out = unit(cross(up, along));
     const dr = add(add(scale(along, -range - KESTREL_PORT_OFFSET), scale(up, radial - KESTREL_PORT_UP)), scale(out, normal));
@@ -204,7 +268,8 @@ export class Mission {
       this.state = stepVehicle(KESTREL, this.state, this.bus.read(), FLIGHT_DT, this.env);
       this.accumulator = Math.max(0, this.accumulator - FLIGHT_DT);
       if (this.state.status === 'crashed') {this.result = 'surface-impact'; this.impactSpeed = this.state.contact?.speed ?? 0;}
-      else if (previous.status === 'flying' && this.state.status === 'landed') {this.result = 'landed-back'; this.impactSpeed = this.state.contact?.speed ?? 0;}
+      // A soft touchdown wins the descent mission; on an ascent it just means you never made orbit.
+      else if (previous.status === 'flying' && this.state.status === 'landed') {this.result = this.mode === 'descent' ? 'touchdown' : 'landed-back'; this.impactSpeed = this.state.contact?.speed ?? 0;}
       const before = circularState(this.orbit, previous.t), after = this.argo;
       const previousRel = this.portRelative(previous, before);
       const rel = this.dockingRelative;
@@ -285,6 +350,8 @@ export class Mission {
     const a = this.argo, radial = unit(a.r), along = unit(a.v);
     if (this.attitudeMode === 'dock') return attitudeHold(s, radial, along);
     if (this.attitudeMode === 'prograde') return attitudeHold(s, unit(s.v), radial);
+    // On a descent, RETRO holds the full braking-guidance attitude (retrograde pitched up to hold the sink rate).
+    if (this.attitudeMode === 'retrograde') return attitudeHold(s, this.mode === 'descent' ? this.descentGuidance.direction : unit(scale(s.v, -1)), radial);
     const rel = sub(a.v, s.v);
     // Thrust along the velocity change still needed; fall back to rate damping once matched.
     return len(rel) < 0.05 ? s.w.map(w => Math.max(-1, Math.min(1, -w * 12))) as V3 : attitudeHold(s, unit(rel), along);

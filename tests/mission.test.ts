@@ -1,7 +1,7 @@
 import {expect, test} from 'bun:test';
 import {Mission} from '../src/sim/mission';
 import {latLonToUnit, circularState} from '../src/sim/orbit';
-import {SMOOTH_MOON, KESTREL} from '../src/sim/vehicle';
+import {SMOOTH_MOON, KESTREL, altitudeAboveGround} from '../src/sim/vehicle';
 import {R_MOON} from '../src/sim/constants';
 import {dot, len, rotate, sub, unit} from '../src/sim/vec';
 const site = latLonToUnit(26.1322, 3.7115);
@@ -152,3 +152,20 @@ test('the whole mission is flyable with the in-game aids: ascent, coast, match, 
   expect(m.result).toBeNull();
   expect(m.state.status).toBe('docked');
 }, 30_000); // flies the entire mission at fine steps; slow under load, so well past the 5 s default.
+
+test('the descent mission can be flown from powered-descent initiation to a soft touchdown', () => {
+  const m = new Mission(latLonToUnit(26.1322, 3.7115), SMOOTH_MOON, 0);
+  m.startDescent();
+  // Apollo-style PDI: high and fast, with the whole orbital speed still to kill.
+  expect(m.summary.altitude).toBeGreaterThan(14_000);
+  expect(m.summary.horizontalSpeed).toBeGreaterThan(1500);
+  // Fly the shipped descent guidance: RETRO holds the braking attitude, the throttle follows the same solution.
+  for (let i = 0; i < 300_000 && !m.result; i++) {
+    m.attitudeMode = 'retrograde';
+    m.throttle = m.descentGuidance.throttle;
+    m.advance(1 / 30, 1);
+  }
+  expect(m.result).toBe('touchdown');
+  expect(m.state.status).toBe('landed');
+  expect(m.state.contact!.speed).toBeLessThanOrEqual(3);
+}, 60_000);

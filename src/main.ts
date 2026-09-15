@@ -79,6 +79,11 @@ if (params.get('scenario') === 'crash') {
   for (let i = 0; i < 120 * 40 && !mission.result; i++) mission.advance(1 / 120, 1);
   simTime = mission.state.t;
 }
+if (params.get('scenario') === 'descent') {
+  // Powered-descent start: 15 km up, ~1.7 km/s to kill, engine pointing retrograde.
+  mission.startDescent();
+  simTime = mission.state.t;
+}
 if (params.get('scenario') === 'collision') {
   mission.placeForDocking(60, 4, 6, 0);
   simTime = mission.state.t;
@@ -284,7 +289,7 @@ function makeRig(name: ViewName): LookRig {
 let chaseDistance = 30;
 let argoCamDistance = 120;
 let viewName = (params.get('view') as ViewName) ?? 'pad';
-if (params.get('scenario') === 'ascent') viewName = 'chase';
+if (params.get('scenario') === 'ascent' || params.get('scenario') === 'descent') viewName = 'chase';
 if (params.get('scenario') === 'terminal' || params.get('scenario') === 'docking') viewName = 'docking';
 if (params.get('scenario') === 'crash' || params.get('scenario') === 'collision') viewName = 'chase';
 let rig = makeRig(viewName);
@@ -727,6 +732,12 @@ function stepAutopilot(): number {
     return 1;
   }
   const o = m.summary;
+  if (m.mode === 'descent') {
+    // RETRO holds the braking-guidance attitude; the throttle follows the same solution all the way to touchdown.
+    m.attitudeMode = 'retrograde';
+    m.throttle = m.descentGuidance.throttle;
+    return 1;
+  }
   if (o.periapsisAltitude < 10_000 && m.guidance.phase !== 'cutoff') {m.assisted = true; return 1;} // guided ascent
   if (m.assisted) {m.assisted = false; m.throttle = 0; m.attitudeMode = 'stabilize';}               // just reached orbit
   if (o.verticalSpeed > 0 && m.range > 4000) return m.timeToApoapsis > 400 ? 100 : 5;                // coast to apoapsis

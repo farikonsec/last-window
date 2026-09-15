@@ -11,6 +11,17 @@ const writeBest = (total: number) => {try {localStorage.setItem(BEST_KEY, String
 const duration = (s: number) => `${Math.floor(Math.abs(s) / 60).toString().padStart(2, '0')}:${Math.floor(Math.abs(s) % 60).toString().padStart(2, '0')}`;
 const distance = (m: number) => Number.isFinite(m) ? `${(m / 1000).toFixed(1)} km` : 'ESCAPE';
 
+/**
+ * One-line landing cue. The powered descent is three jobs in order: kill the ~1.7 km/s of orbital speed with the engine
+ * pointing retrograde, then pitch up and control the sink rate, then set down under 3 m/s and upright.
+ */
+export function descentCue(horizontal: number, vertical: number, agl: number): [string, string] {
+  if (horizontal > 60) return [`BRAKE: hold PROGRADE-back and burn · ${horizontal.toFixed(0)} m/s to kill`, horizontal > 400 ? 'amber' : 'green'];
+  if (agl > 300) return [`DESCEND: pitch upright, hold sink under ${Math.max(10, agl / 25).toFixed(0)} m/s · ${agl.toFixed(0)} m`, vertical < -Math.max(12, agl / 20) ? 'red' : 'green'];
+  if (agl > 25) return [`FINAL: sink under 5 m/s, level the ship · ${agl.toFixed(0)} m`, vertical < -8 ? 'red' : 'amber'];
+  return [`TOUCHDOWN: under 3 m/s, upright · ${agl.toFixed(0)} m`, vertical < -3.5 ? 'red' : 'green'];
+}
+
 /** Body-axis RCS cue (+x right, +y up, +z forward) as the keys to press. */
 export function rcsKeys(keys: [number, number, number]) {
   const k = [keys[2] > 0 ? 'W' : keys[2] < 0 ? 'S' : '', keys[0] > 0 ? 'D' : keys[0] < 0 ? 'A' : '', keys[1] > 0 ? 'R' : keys[1] < 0 ? 'F' : ''].filter(Boolean);
@@ -30,7 +41,7 @@ export class MissionHud {
       <div class="flight-readouts" aria-live="off"></div>
       <div class="flight-actions"><button data-action="wait">Wait to T−30 s</button><button data-action="launch">LAUNCH</button><button data-action="reset">Reset</button></div>
       <label class="throttle-control">THROTTLE <input aria-label="Main engine throttle" type="range" min="0" max="100" value="0"><output>0%</output></label>
-      <div class="attitude-modes" role="group" aria-label="Attitude aid">${(['free', 'stabilize', 'dock', 'match', 'prograde'] as AttitudeMode[]).map(mode => `<button data-attitude="${mode}">${{free: 'FREE', stabilize: 'HOLD [Q]', dock: 'DOCK [E]', match: 'MATCH [G]', prograde: 'PROGRADE'}[mode]}</button>`).join('')}</div>
+      <div class="attitude-modes" role="group" aria-label="Attitude aid">${(['free', 'stabilize', 'dock', 'match', 'prograde', 'retrograde'] as AttitudeMode[]).map(mode => `<button data-attitude="${mode}">${{free: 'FREE', stabilize: 'HOLD [Q]', dock: 'DOCK [E]', match: 'MATCH [G]', prograde: 'PROGRADE', retrograde: 'RETRO [R]'}[mode]}</button>`).join('')}</div>
       <label class="assist-control"><input type="checkbox"> Reference guidance (automatic demo)</label>
       <p>↑ ↓ throttle · Space cut · I/K pitch · J/L yaw · U/O roll<br>W/S fore/aft · A/D left/right · R/F up/down<br>C chase · V cockpit · N docking sight · B ARGO · [ ] warp · P sound</p>`;
     parent.appendChild(this.panel);
@@ -76,11 +87,11 @@ export class MissionHud {
   /** End-of-flight card: what happened, the numbers that decided it, and a one-key retry. */
   private showDebrief() {
     const m = this.mission, s = m.state;
-    const success = s.status === 'docked';
+    const success = s.status === 'docked' || m.result === 'touchdown';
     if (this.dismissed || (!m.result && !success)) {this.debrief.hidden = true; return;}
     this.debrief.hidden = false;
     this.debrief.classList.toggle('success', success);
-    const text = success ? {title: 'HARD DOCK · CREW HOME', detail: 'Latches closed and the tunnel is pressurised. Welcome aboard ARGO.'} : RESULT_TEXT[m.result!];
+    const text = s.status === 'docked' ? {title: 'HARD DOCK · CREW HOME', detail: 'Latches closed and the tunnel is pressurised. Welcome aboard ARGO.'} : RESULT_TEXT[m.result!];
     this.debrief.querySelector('h2')!.textContent = text.title;
     this.debrief.querySelector('.debrief-detail')!.textContent = text.detail;
     const row = (k: string, v: string) => `<dt>${k}</dt><dd>${v}</dd>`;
@@ -124,7 +135,9 @@ export class MissionHud {
     const rel = m.dockingRelative, approach = m.approach;
     const relSpeed = len(m.relativeVelocity);
     // One plain instruction for what to do next.
+    const agl = altitudeAboveGround(s, m.env);
     const cue: [string, string] | null = m.result || s.status === 'docked' ? null
+      : m.mode === 'descent' ? descentCue(o.horizontalSpeed, o.verticalSpeed, agl)
       : !m.launched ? (m.windowBand === 'green' ? ['LAUNCH NOW', 'green'] : m.countdown < 40 && m.countdown > 0 ? ['STAND BY · LAUNCH ON T−0', 'amber'] : null)
         : o.periapsisAltitude < 10_000 ? ['CLIMB: follow the pitch cue until apoapsis reads 100 km, then cut throttle', 'amber']
           : m.timeToApoapsis > 30 && m.range > 2_500 && o.verticalSpeed > 0 ? [`COAST: warp with ] · apoapsis and ARGO in ${duration(m.timeToApoapsis)}`, 'green']
