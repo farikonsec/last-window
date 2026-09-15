@@ -669,6 +669,20 @@ faceEarthBtn.onclick = () => {
   flashMessage(`Facing Earth · ${el.toFixed(0)}° above the horizon`);
 };
 controls.querySelector('div')!.appendChild(faceEarthBtn);
+
+// Bring ARGO near: fast-forward the mothership along its own orbit so the next launch window is seconds away instead
+// of most of an orbit, turning a long wait into a short one without changing what the flight itself demands.
+const argoNearBtn = document.createElement('button');
+argoNearBtn.id = 'argo-near';
+argoNearBtn.textContent = 'ARGO near';
+argoNearBtn.title = 'Skip the wait: advance the mothership along its orbit so the launch window opens in about a minute instead of up to two hours. The ascent, rendezvous and docking are unchanged.';
+argoNearBtn.onclick = () => {
+  if (mission.launched || mission.result) {flashMessage('Already launched · reset to re-phase ARGO'); return;}
+  const before = mission.countdown;
+  mission.bringArgoNear();
+  flashMessage(`ARGO re-phased · window in ${Math.max(0, mission.countdown).toFixed(0)} s (was ${Math.max(0, before / 60).toFixed(0)} min)`);
+};
+controls.querySelector('div')!.appendChild(argoNearBtn);
 targetHud.querySelector<HTMLButtonElement>('.th-clear')!.onclick = () => {setTarget(null); setAutodrive(false);};
 targetHud.querySelector<HTMLButtonElement>('.th-go')!.onclick = () => {if (target) travelTo(target);};
 const autoBtn = targetHud.querySelector<HTMLButtonElement>('.th-auto')!;

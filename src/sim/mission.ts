@@ -59,7 +59,7 @@ export function argoHullHit(r0: V3, argo0: {r: V3; v: V3}, r1: V3, argo1: {r: V3
 /** Owns the mission clock and every actuator write; the renderer never advances physics itself. */
 export class Mission {
   readonly bus = new CommandBus();
-  readonly orbit;
+  orbit;
   window;
   state: VehicleState;
   throttle = 0;
@@ -219,6 +219,26 @@ export class Mission {
     this.dockingOutcome = null;
     this.captureRemaining = 0;
     this.accumulator = 0;
+  }
+
+  /**
+   * Re-phase ARGO so the launch window is imminent instead of up to an orbit away.
+   *
+   * The window is a geometry between the rotating site and ARGO's position in its orbit: it recurs about once per
+   * orbit. Rather than move ARGO somewhere arbitrary (putting it overhead just pushes the window a whole orbit out,
+   * because you cannot be up there yet), this fast-forwards ARGO along its own orbit by exactly the time left until
+   * the next natural window. The configuration that was going to happen then now happens now, so the solved window
+   * lands within seconds and the rendezvous afterwards is the normal, winnable one. The site's own rotation over that
+   * gap is about a degree, so it converges in a couple of passes.
+   */
+  bringArgoNear() {
+    if (this.launched || this.result) return;
+    this.window = solveLaunchWindow(this.site, this.orbit, this.state.t, 1500, KESTREL, this.env);
+    // Leave a small margin: shifting ARGO so the window lands exactly on "now" makes the solver skip to the next one.
+    for (let i = 0; i < 6 && this.countdown > 150; i++) {
+      this.orbit = {...this.orbit, epoch: this.orbit.epoch - (this.countdown - 90)};
+      this.window = solveLaunchWindow(this.site, this.orbit, this.state.t, 1500, KESTREL, this.env);
+    }
   }
 
   /** Waiting uses the same power drain and lunar rotation as ordinary landed flight. */

@@ -265,3 +265,4 @@ body.compact .touch > * { pointer-events: auto; touch-action: none; position: fi
 .medal.gold { background: linear-gradient(#ffe082, #d4a017); box-shadow: 0 0 16px #ffca2866; }
 .medal.silver { background: linear-gradient(#eef2f5, #aeb9c2); box-shadow: 0 0 16px #cfe0ea55; }
 .medal.bronze { background: linear-gradient(#e6a97a, #b9743c); box-shadow: 0 0 14px #d98c5544; }
+#argo-near { color: #91efc3; border-color: #91efc355; }

@@ -169,3 +169,34 @@ test('the descent mission can be flown from powered-descent initiation to a soft
   expect(m.state.status).toBe('landed');
   expect(m.state.contact!.speed).toBeLessThanOrEqual(3);
 }, 60_000);
+
+test('bringArgoNear collapses the wait to seconds and the mission is still winnable to a dock', () => {
+  const site = latLonToUnit(26.1322, 3.7115);
+  const m = new Mission(site, SMOOTH_MOON, 0);
+  m.bringArgoNear();
+  expect(m.countdown).toBeGreaterThan(-1);
+  expect(m.countdown).toBeLessThan(200); // imminent, not an orbit away
+  // Now fly the same sequence the HUD aids give you, and still reach a hard dock.
+  m.advance(m.countdown, 1);
+  expect(m.launch()).toBe(true);
+  m.assisted = true;
+  for (let i = 0; i < 20_000 && m.guidance.phase !== 'cutoff'; i++) m.advance(1 / 30, 1);
+  m.assisted = false; m.throttle = 0; m.attitudeMode = 'stabilize';
+  expect(m.summary.periapsisAltitude).toBeGreaterThan(10_000);
+  for (let i = 0; i < 400_000 && m.summary.verticalSpeed > 0 && !m.result; i++) m.advance(1, m.timeToApoapsis > 400 ? 100 : 5);
+  expect(m.result).toBeNull();
+  m.attitudeMode = 'match';
+  for (let i = 0; i < 6000 && len(m.relativeVelocity) > 0.3 && !m.result; i++) {
+    const aligned = dot(rotate(m.state.q, [0, 1, 0]), unit(sub(m.argo.v, m.state.v))) > 0.995;
+    m.throttle = aligned ? Math.min(1, len(m.relativeVelocity) / 12) : 0;
+    m.advance(1 / 30, 1);
+  }
+  m.throttle = 0;
+  m.attitudeMode = 'dock';
+  for (let i = 0; i < 120_000 && m.state.status !== 'docked' && !m.result; i++) {
+    m.translation = m.translationCue.keys;
+    m.advance(1 / 30, 1);
+  }
+  expect(m.result).toBeNull();
+  expect(m.state.status).toBe('docked');
+}, 40_000);
