@@ -342,7 +342,7 @@ controls.className = 'nav-controls';
 controls.setAttribute('aria-label', 'Surface navigation');
 controls.innerHTML = `<strong>LAST WINDOW <small>HADLEY EXPEDITION / 2031</small></strong>
   <div><select aria-label="Camera view" id="camera-view">${['pad','chase','cockpit','docking','argo','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
-  <button id="label-mode">Labels: smart [L]</button><button id="map-mode">Map: local [M]</button><button id="sound">Sound: off [P]</button><button id="autopilot">Autopilot: off [Y]</button></div>
+  <button id="label-mode">Labels: smart [L]</button><button id="map-mode">Map: local [M]</button><button id="sound">Sound: off [P]</button><button id="autopilot">Autopilot: off [Y]</button><button id="mission-mode">Mission: ascent</button></div>
   <select aria-label="Inspect equipment" id="inspect-equipment"><option value="">Inspect equipment…</option>${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</select>`;
 app.appendChild(controls);
 const cameraSelect = controls.querySelector<HTMLSelectElement>('#camera-view')!;
@@ -354,6 +354,10 @@ function toggleAutopilot(on = !autopilotOn) {
   if (on && (viewName === 'pad' || viewName === 'site' || viewName === 'apollo')) {viewName = 'chase'; rig = makeRig(viewName); cameraSelect.value = viewName;}
 }
 autopilotBtn.onclick = () => toggleAutopilot();
+// Switch between the two missions: fly up from the pad to ARGO, or down from orbit to a landing.
+const modeBtn = controls.querySelector<HTMLButtonElement>('#mission-mode')!;
+modeBtn.textContent = `Mission: ${mission.mode === 'descent' ? 'descent' : 'ascent'}`;
+modeBtn.onclick = () => {location.href = location.pathname + (mission.mode === 'descent' ? '?view=pad&scenario=window-open' : '?scenario=descent');};
 cameraSelect.onchange = () => {viewName = cameraSelect.value as ViewName; rig = makeRig(viewName);};
 const changeLabels = () => {labels.mode = labels.mode === 'smart' ? 'all' : labels.mode === 'all' ? 'off' : 'smart';};
 controls.querySelector<HTMLButtonElement>('#label-mode')!.onclick = changeLabels;
