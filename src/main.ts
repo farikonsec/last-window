@@ -615,11 +615,12 @@ cameraSelect.onchange = () => {viewName = cameraSelect.value as ViewName; rig = 
 
 // Drive-to target: pick any real mission on the Moon; the map and an on-screen arrow point to it with distance left.
 let target: Probe | null = null;
+let autodrive = false; // the buggy steers itself toward the target; combine with Time-warp to cross the Moon
 const targetSelect = controls.querySelector<HTMLSelectElement>('#target')!;
 const targetHud = document.createElement('div');
 targetHud.className = 'target-hud';
 targetHud.hidden = true;
-targetHud.innerHTML = '<div class="th-arrow">➤</div><div class="th-text"><b></b><span></span></div><button class="th-go" title="Travel there: fast-forward the journey and stand the buggy beside the site to inspect it">GO ▸</button><button class="th-clear" title="Clear target">✕</button>';
+targetHud.innerHTML = '<div class="th-arrow">➤</div><div class="th-text"><b></b><span></span></div><button class="th-auto" title="Auto-drive: the buggy steers itself toward the target so you can raise Time-warp and watch it cross the Moon. Any drive key takes back control.">AUTO</button><button class="th-go" title="Travel there instantly: fast-forward the journey and stand the buggy beside the site to inspect it">GO ▸</button><button class="th-clear" title="Clear target">✕</button>';
 app.appendChild(targetHud);
 const thArrow = targetHud.querySelector<HTMLElement>('.th-arrow')!;
 const thName = targetHud.querySelector<HTMLElement>('.th-text b')!;
@@ -668,8 +669,15 @@ faceEarthBtn.onclick = () => {
   flashMessage(`Facing Earth · ${el.toFixed(0)}° above the horizon`);
 };
 controls.querySelector('div')!.appendChild(faceEarthBtn);
-targetHud.querySelector<HTMLButtonElement>('.th-clear')!.onclick = () => setTarget(null);
+targetHud.querySelector<HTMLButtonElement>('.th-clear')!.onclick = () => {setTarget(null); setAutodrive(false);};
 targetHud.querySelector<HTMLButtonElement>('.th-go')!.onclick = () => {if (target) travelTo(target);};
+const autoBtn = targetHud.querySelector<HTMLButtonElement>('.th-auto')!;
+function setAutodrive(on: boolean) {
+  autodrive = on && !!target;
+  autoBtn.classList.toggle('on', autodrive);
+  if (autodrive && !driving) setDriving(true);
+}
+autoBtn.onclick = () => setAutodrive(!autodrive);
 
 /** Re-anchor the whole terrain/clipmap/hardware system to a new sub-point so the surface renders anywhere on the Moon. */
 function reanchorTo(lat: number, lon: number, withField = true) {
@@ -1214,17 +1222,36 @@ function tick(realDt: number, now: number, render = true) {
   if (driving) {
     // Ground: W/S motor/brake and A/D steer. In flight those become forward/retro rockets and bank+yaw; R/F climb
     // and descend, and Shift opens the high-flow forward valve. The flight HUD changes mode and explains the mapping.
-    const drive: BuggyControls = {
+    let drive: BuggyControls = {
       throttle: held.has('w') ? 1 : 0,
       brake: held.has('s') ? 1 : 0,
       steer: (held.has('d') ? 1 : 0) - (held.has('a') ? 1 : 0),
       turbo: held.has('shift'),
       lift: (held.has('r') ? 1 : 0) - (held.has('f') ? 1 : 0),
     };
+    // Auto-drive toward the target's great-circle bearing. A crossing is really a low cruise: it lifts into a coasting
+    // skim (vacuum has no drag, so speed holds) and only pulses thrust to hold heading, altitude and cruise speed —
+    // otherwise rough ground would launch and hard-land it to a crawl. A drive key hands control back; arrival stops it.
+    if (autodrive && target) {
+      if (['w', 'a', 's', 'd', 'r', 'f', 'shift'].some(k => held.has(k))) setAutodrive(false);
+      else {
+        const dist = surfaceDistance(buggy.lat, buggy.lon, target.lat, target.lon);
+        const err = ((greatCircleBearing(buggy.lat, buggy.lon, target.lat, target.lon) - buggy.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        const steer = Math.max(-1, Math.min(1, err * (buggy.airborne ? 1.6 : 2.5)));
+        if (dist < 500 && !buggy.airborne) {setAutodrive(false); flashMessage(`Arrived · ${target.name}`);}
+        else if (!buggy.airborne) drive = {throttle: 1, brake: 0, steer, turbo: true, lift: 0}; // build speed and lift off
+        else if (dist < 4000) drive = {throttle: 0, brake: 1, steer, turbo: false, lift: -1}; // near target: brake and settle
+        else {
+          const hold = buggy.altitude < 250 ? 1 : buggy.altitude > 700 ? -1 : 0; // hold ~250-700 m AGL
+          const push = Math.abs(buggy.speed) < 220 ? 1 : 0;                       // reach cruise then coast (no drag)
+          drive = {throttle: push, brake: 0, steer, turbo: false, lift: hold};
+        }
+      }
+    }
     // Time-warp works while driving too (capped, so the clipmap can keep up): run the physics in fixed sub-steps that
     // cover warp*realDt of sim time, so you can cover real ground toward a distant target instead of crawling.
     const total = Math.min(realDt, 0.05) * driveWarp;
-    const driveInput = held.size ? drive : NO_DRIVE;
+    const driveInput = held.size || autodrive ? drive : NO_DRIVE;
     const n = Math.max(1, Math.min(240, Math.ceil(total / 0.05)));
     for (let i = 0; i < n; i++) buggy.step(driveInput, total / n, terrain);
     wheelSpin += (buggy.speed * total) / 0.52; // roll the wheels (tyre radius 0.52 m)
