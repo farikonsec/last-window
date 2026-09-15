@@ -117,6 +117,12 @@ export class RockField {
     }
   }
 
+  /** Re-place against a new terrain anchor and force a repopulate on the next update. */
+  reanchor() {
+    this.anchor = anchorBodyFixed(this.terrain);
+    for (const entry of this.meshes) entry.centre = null;
+  }
+
   /** Repopulate around the camera ground point (terrain-local metres) when it has moved far enough. */
   update(localX: number, localY: number, altitude: number) {
     for (const entry of this.meshes) {

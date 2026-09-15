@@ -65,6 +65,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid #8fe8ed; outline
 .target-hud .th-arrow { font-size: 20px; color: #ffd36b; transition: transform .1s linear; text-shadow: 0 0 8px #ffd36b88; }
 .target-hud .th-text b { display: block; font-weight: 700; color: #ffe9b8; }
 .target-hud .th-text span { color: #c9b98a; font-size: 10px; }
+.target-hud .th-go { padding: 5px 10px; font: 700 11px ui-monospace, monospace; letter-spacing: 1px; color: #05120b; background: linear-gradient(#8affc0, #23c46e); border: 1px solid #8affc0; border-radius: 8px; }
 .target-hud .th-clear { padding: 4px 7px; font-size: 11px; color: #c9b98a; background: #ffffff10; border: 1px solid #ffffff26; border-radius: 8px; }
 @media (max-width: 700px) { .target-hud { top: auto; bottom: calc(150px + env(safe-area-inset-bottom)); font-size: 10px; } }
 /* Flight manual overlay. */

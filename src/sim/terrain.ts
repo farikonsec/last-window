@@ -89,10 +89,10 @@ export interface TerrainOptions {
 export class LunarTerrain {
   readonly region: ElevationGrid;
   readonly globe: ElevationGrid;
-  readonly anchorLat: number;
-  readonly anchorLon: number;
+  anchorLat: number;
+  anchorLon: number;
   private readonly metresPerDegLat = R_MOON * DEG;
-  private readonly metresPerDegLon: number;
+  private metresPerDegLon: number;
   private readonly regionBounds: {south: number; east: number};
   /** Flattened pads: local x, y (m), radius (m) and blend width. Heights inside are held level. */
   private pads: {x: number; y: number; radius: number; blend: number; height: number}[] = [];
@@ -106,8 +106,18 @@ export class LunarTerrain {
     this.regionBounds = {south: this.region.north - this.region.height / this.region.ppd, east: this.region.west + this.region.width / this.region.ppd};
   }
 
+  /** Move the tangent-plane origin to a new point so the clipmap can render anywhere on the globe (the projection is
+   * only accurate near its anchor, so the caller re-anchors as the camera roams). Longitude scale follows the anchor. */
+  reanchor(latDeg: number, lonDeg: number) {
+    this.anchorLat = latDeg;
+    this.anchorLon = lonDeg;
+    this.metresPerDegLon = R_MOON * DEG * Math.cos(latDeg * DEG);
+  }
+
   toLocal(latDeg: number, lonDeg: number) {
-    return {x: (lonDeg - this.anchorLon) * this.metresPerDegLon, y: (latDeg - this.anchorLat) * this.metresPerDegLat};
+    // Longitude difference wrapped to [-180, 180] so a clipmap that has re-anchored near the antimeridian is continuous.
+    const dLon = (((lonDeg - this.anchorLon + 540) % 360) - 180);
+    return {x: dLon * this.metresPerDegLon, y: (latDeg - this.anchorLat) * this.metresPerDegLat};
   }
 
   fromLocal(x: number, y: number) {

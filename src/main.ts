@@ -25,7 +25,7 @@ import {LunarElevation, MoonGlobe} from './render/moon';
 import {MilkyWay, Stars, SunDisc, type StarMode} from './render/sky';
 import {Viewer} from './render/viewer';
 import {RockField} from './render/rocks';
-import {APOLLO15_LM, HADLEY_HARDWARE, hardwareLight, hardwareMaterial, HardwareSet, KESTREL_PAD, offset} from './render/hardware';
+import {APOLLO15_LM, HADLEY_HARDWARE, SITE_MODELS, hardwareLight, hardwareMaterial, HardwareSet, KESTREL_PAD, offset} from './render/hardware';
 import {SunShadows} from './render/shadows';
 import {TerrainRings} from './render/terrain';
 import {GRID_FILES, HADLEY_SITE, LunarTerrain, type ElevationGrid} from './sim/terrain';
@@ -68,7 +68,8 @@ terrain.addPad(APOLLO15_LM.lat, APOLLO15_LM.lon, 7, 4);
 terrain.addPad(KESTREL_PAD.lat, KESTREL_PAD.lon, 7.5, 5);
 const rings = new TerrainRings(terrain, moonColour, shadows);
 const hardware = new HardwareSet(terrain, shadows);
-await hardware.load(params.get('hardware') === '0' ? [] : HADLEY_HARDWARE);
+await hardware.load(params.get('hardware') === '0' ? [] : [...HADLEY_HARDWARE, ...SITE_MODELS]);
+for (const m of SITE_MODELS) {const o = hardware.objects.get(m.name); if (o) o.visible = false;}
 const mission = new Mission(latLonToUnit(KESTREL_PAD.lat, KESTREL_PAD.lon), terrain, simTime);
 if (params.get('scenario') === 'window-open' || params.get('scenario') === 'ascent') {
   mission.waitForWindow();
@@ -615,7 +616,7 @@ const targetSelect = controls.querySelector<HTMLSelectElement>('#target')!;
 const targetHud = document.createElement('div');
 targetHud.className = 'target-hud';
 targetHud.hidden = true;
-targetHud.innerHTML = '<div class="th-arrow">➤</div><div class="th-text"><b></b><span></span></div><button class="th-clear" title="Clear target">✕</button>';
+targetHud.innerHTML = '<div class="th-arrow">➤</div><div class="th-text"><b></b><span></span></div><button class="th-go" title="Travel there: fast-forward the journey and stand the buggy beside the site to inspect it">GO ▸</button><button class="th-clear" title="Clear target">✕</button>';
 app.appendChild(targetHud);
 const thArrow = targetHud.querySelector<HTMLElement>('.th-arrow')!;
 const thName = targetHud.querySelector<HTMLElement>('.th-text b')!;
@@ -631,6 +632,50 @@ targetSelect.onchange = () => setTarget(PROBES.find(p => p.id === targetSelect.v
 const manual = new Manual(app);
 controls.querySelector('div')!.appendChild(manual.button);
 targetHud.querySelector<HTMLButtonElement>('.th-clear')!.onclick = () => setTarget(null);
+targetHud.querySelector<HTMLButtonElement>('.th-go')!.onclick = () => {if (target) travelTo(target);};
+
+/** Re-anchor the whole terrain/clipmap/hardware system to a new sub-point so the surface renders anywhere on the Moon. */
+function reanchorTo(lat: number, lon: number) {
+  terrain.reanchor(lat, lon);
+  rings.reanchor();
+  hardware.reanchor();
+  rocks.reanchor();
+  trackAnchor = scale(latLonToUnit(lat, lon), R_MOON);
+  tracks.clear();
+  driveTrail.length = 0;
+}
+
+/** Travel to a world mission: re-anchor there, stand its stand-in model on the real terrain, and drop the buggy beside
+ * it to drive up and inspect. The arrow already showed the real distance; the trip itself is treated as elapsed. */
+/** A sim time at which the Sun rakes the given site at a photogenic elevation, so a visited probe is lit, not in night. */
+function sunUpTime(lat: number, lon: number, from: number) {
+  const upBody = latLonToUnit(lat, lon), DAY = 86_400;
+  let best = from, bestEl = -Infinity;
+  for (let k = 0; k <= 30; k++) {
+    const t = from + k * DAY, sun = bodiesAt(sky, t).sun;
+    const el = Math.asin(Math.max(-1, Math.min(1, dot(unit(apply(moonFixedToEqj(sky, t), upBody)), unit(sun))))) * 180 / Math.PI;
+    if (el > 20 && el < 55) return t;
+    if (el > bestEl) {bestEl = el; best = t;}
+  }
+  return best;
+}
+
+function travelTo(p: Probe) {
+  // Jump to a local morning so the site is sunlit rather than in lunar night.
+  const t = sunUpTime(p.lat, p.lon, simTime);
+  mission.state.t = t; simTime = t;
+  reanchorTo(p.lat, p.lon);
+  const pick = p.kind === 'crewed' ? 'site-apollo' : p.kind === 'rover' ? 'site-rover' : 'site-lander';
+  for (const name of ['site-lander', 'site-rover', 'site-apollo']) {
+    const o = hardware.objects.get(name);
+    if (!o) continue;
+    o.visible = name === pick;
+    if (name === pick) {o.matrix.copy(hardware.placementMatrix({name, url: '', lat: p.lat, lon: p.lon, heading: 40})); o.updateMatrixWorld(true);}
+  }
+  Object.assign(buggy, {lat: p.lat - 18 / (R_MOON * DEG), lon: p.lon, heading: 0, speed: 0, slip: 0, altitude: 0, vVert: 0, roll: 0, rollRate: 0, flipped: false, airborne: false});
+  if (!driving) setDriving(true);
+  viewName = 'rover'; rig = makeRig(viewName); cameraSelect.value = viewName;
+}
 function updateTargetHud() {
   if (!target) {targetHud.hidden = true; return;}
   targetHud.hidden = false;
@@ -781,7 +826,7 @@ controls.querySelector<HTMLButtonElement>('#sound')!.onclick = () => {audioChose
 const effects = new Effects();
 viewer.scene.add(effects.group);
 // Tyre tracks live in the terrain anchor frame (like the hardware): pressed into the ground at body-fixed lat/lon.
-const trackAnchor = scale(latLonToUnit(terrain.anchorLat, terrain.anchorLon), R_MOON);
+let trackAnchor = scale(latLonToUnit(terrain.anchorLat, terrain.anchorLon), R_MOON);
 const tracks = new Tracks((lat, lon, lift) =>
   sub(scale(latLonToUnit(lat, lon), R_MOON + terrain.height(lat, lon) + lift), trackAnchor) as [number, number, number]);
 viewer.scene.add(tracks.group);

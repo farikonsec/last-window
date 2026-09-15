@@ -139,14 +139,25 @@ export class HardwareSet {
   objects = new Map<string, T.Object3D>();
   private anchor: [number, number, number];
   private loader = new GLTFLoader();
+  private placed = new Map<string, Placement>();
 
   constructor(private terrain: LunarTerrain, private shadows: SunShadows) {
     this.anchor = anchorBodyFixed(terrain);
     this.group.matrixAutoUpdate = false;
   }
 
+  /** Re-place every static model against a new terrain anchor (call after the terrain re-anchors). */
+  reanchor() {
+    this.anchor = anchorBodyFixed(this.terrain);
+    for (const [name, holder] of this.objects) {
+      const p = this.placed.get(name);
+      if (p) {holder.matrix.copy(this.placementMatrix(p)); holder.updateMatrixWorld(true);}
+    }
+  }
+
   async load(placements: Placement[]) {
     await Promise.all(placements.map(async p => {
+      this.placed.set(p.name, p);
       const gltf = await this.loader.loadAsync(assetUrl(p.url));
       const model = gltf.scene;
       model.traverse(o => {
@@ -216,4 +227,11 @@ export const HADLEY_HARDWARE: Placement[] = [
   {name: 'un-flag', url: 'models/flag-us.glb', ...offset(KESTREL_PAD, -12, 9), heading: 200},
   // The crew's fast buggy, parked a few metres from KESTREL; driven live, so re-placed every frame from its sim state.
   {name: 'buggy', url: 'models/buggy.glb', ...offset(KESTREL_PAD, 10, -5), heading: 90},
+];
+
+/** Stand-in models shown at whichever world mission you travel to (loaded once, hidden until a site is placed). */
+export const SITE_MODELS: Placement[] = [
+  {name: 'site-lander', url: 'models/probe-lander.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-rover', url: 'models/probe-rover.glb', ...APOLLO15_LM, heading: 0},
+  {name: 'site-apollo', url: 'models/apollo-lm-descent.glb', ...APOLLO15_LM, heading: 0},
 ];

@@ -86,6 +86,19 @@ export class TerrainRings {
     }
   }
 
+  /** Re-anchor to a new terrain origin: rebuild the self-shadow field there, rebind it, and force every ring to rebuild
+   * around the new anchor. Called when the camera has roamed far enough that the clipmap must follow it. */
+  reanchor() {
+    this.anchor = anchorBodyFixed(this.terrain);
+    this.field.dispose();
+    this.field = this.buildShadowField();
+    for (const L of this.levels) {
+      L.built = false; L.enabled = false; L.mesh.visible = false;
+      L.material.uniforms.field.value = this.field;
+      L.material.uniforms.fieldRef.value = this.fieldHeight;
+    }
+  }
+
   /** Rebuild rings that the camera has moved away from, within a time budget. Returns rings rebuilt. */
   update(frame: TerrainFrame, budgetMs = 8) {
     const c = frame.cameraBodyFixed, r = len(c);
