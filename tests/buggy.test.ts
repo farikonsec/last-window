@@ -1,5 +1,5 @@
 import {expect, test} from 'bun:test';
-import {BUGGY, Buggy, NO_DRIVE} from '../src/sim/buggy';
+import {BUGGY, Buggy, buggyContactLift, NO_DRIVE} from '../src/sim/buggy';
 
 const flat = {height: () => 0};
 /** A gentle east-facing slope (~9°): height rises with longitude, shallow enough that the wheels never leave it. */
@@ -96,11 +96,18 @@ test('airborne thrusters lift, accelerate and arrest an unwanted roll', () => {
   const reserve = b.turbo;
   for (let i = 0; i < 60; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: false, lift: 1}, 1 / 30, flat);
   expect(b.airborne).toBe(true);
-  expect(b.speed).toBeGreaterThan(20);
+  expect(b.speed).toBeGreaterThan(40);
   expect(b.vVert).toBeGreaterThan(0);
   expect(Math.abs(b.roll)).toBeLessThan(0.4);
   expect(b.flipped).toBe(false);
   expect(b.turbo).toBeLessThan(reserve);
+});
+
+test('the render contact envelope keeps a rolled or inverted hull above solid terrain', () => {
+  expect(buggyContactLift(0)).toBeCloseTo(0, 6);
+  expect(buggyContactLift(Math.PI / 2)).toBeGreaterThanOrEqual(2.3);
+  expect(buggyContactLift(Math.PI)).toBeGreaterThanOrEqual(2.6);
+  expect(buggyContactLift(Math.PI / 2, 0.7)).toBeGreaterThanOrEqual(3);
 });
 
 test('a turn throws the tail out (slip), and grip pulls it back when you stop steering', () => {

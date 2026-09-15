@@ -57,13 +57,18 @@ export const BUGGY = {
   turboDrain: 0.12,
   turboCharge: 0.05,
   /** Vacuum-flight thrusters: forward/retro acceleration, vertical acceleration and attitude authority. */
-  flightForward: 7,
-  flightLift: 4.2,
-  flightTurnRate: 0.65,
-  flightRollPower: 5,
-  flightStabilize: 8,
-  flightDamping: 5,
+  flightForward: 16,
+  flightBoost: 2.2,
+  flightLift: 8,
+  flightTurnRate: 0.9,
+  flightRollPower: 6.5,
+  flightStabilize: 10,
+  flightDamping: 6,
   rightingPower: 5,
+  /** Render collision envelope measured from buggy.glb, excluding the hidden exhaust plumes. */
+  hullHalfWidth: 2.35,
+  hullRoofHeight: 2.65,
+  hullHalfLength: 2.7,
   /** Half the track width and the centre-of-gravity height, m: their ratio times g is the rollover-tip acceleration. */
   trackHalf: 1.15,
   cgHeight: 0.85,
@@ -76,6 +81,13 @@ export const BUGGY = {
   /** Baseline over which slope and curvature are sampled, m — the wheels bridge anything finer, filtering ripples. */
   wheelbase: 3,
 };
+
+/** Height needed to keep the buggy's rotated hull above its contact plane. */
+export function buggyContactLift(roll: number, terrainRise = 0) {
+  const hull = Math.abs(Math.sin(roll)) * BUGGY.hullHalfWidth
+    + Math.max(0, -Math.cos(roll)) * BUGGY.hullRoofHeight;
+  return hull + Math.max(0, terrainRise);
+}
 
 const DEG = Math.PI / 180;
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
@@ -174,7 +186,7 @@ export class Buggy {
     } else if (airControl) {
       // These are rockets in vacuum, despite the short "air engine" HUD label: W/S thrust fore/aft, R/F lift or
       // descend, and A/D command a bank plus a small yaw. With Shift held the aft motor opens its high-flow valve.
-      const forwardPower = BUGGY.flightForward * (controls.turbo ? 1.7 : 1);
+      const forwardPower = BUGGY.flightForward * (controls.turbo ? BUGGY.flightBoost : 1);
       this.speed += (controls.throttle - controls.brake) * forwardPower * dt;
       this.vVert += lift * BUGGY.flightLift * dt;
       turn = controls.steer * BUGGY.flightTurnRate * dt;

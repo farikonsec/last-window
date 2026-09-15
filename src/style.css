@@ -146,20 +146,37 @@ body.compact .mini-hud { display: flex; align-items: center; gap: 8px; position:
 
 /* Drive HUD: speedometer, turbo bar and drive state, bottom-centre, only while driving the buggy. */
 .drive-hud { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 26;
-  display: flex; align-items: center; gap: 14px; padding: 9px 16px; background: #0a1016d8; border: 1px solid #ffffff1f; border-radius: 14px;
+  display: flex; align-items: center; gap: 14px; padding: 9px 16px; background: #0a1016e8; border: 1px solid #ffffff1f; border-radius: 14px;
   backdrop-filter: blur(8px); font: 12px ui-monospace, monospace; color: #cfe0ea; pointer-events: none; }
+.drive-hud.flight { padding: 12px 18px; border-color: #35e0ff88; background: linear-gradient(115deg, #07131bef, #102332e8);
+  box-shadow: 0 0 26px #35e0ff33, inset 0 0 24px #35e0ff0d; }
+.drive-hud.rollover { border-color: #ff9b6688; box-shadow: 0 0 22px #ff6b3540; }
 .drive-hud .dh-state { font-weight: 800; letter-spacing: .12em; color: #8fd6ff; min-width: 74px; text-align: center; }
 .drive-hud .dh-state.air { color: #ffd06b; }
-.drive-hud .dh-speed { display: flex; align-items: baseline; gap: 4px; }
-.drive-hud .dh-speed b { font-size: 26px; font-weight: 800; color: #eaf4fb; }
-.drive-hud .dh-speed span { font-size: 10px; color: #9db3bd; }
+.drive-hud.flight .dh-state { color: #74ecff; text-shadow: 0 0 12px #35e0ffaa; }
+.drive-hud .dh-gauge { display: flex; flex-direction: column; min-width: 62px; }
+.drive-hud .dh-gauge small { color: #718d9b; font-size: 8px; letter-spacing: .12em; }
+.drive-hud .dh-gauge div { display: flex; align-items: baseline; gap: 4px; }
+.drive-hud .dh-gauge b { font-size: 26px; line-height: 1; font-weight: 800; color: #eaf4fb; }
+.drive-hud .dh-gauge span, .drive-hud .dh-gauge em { font-size: 9px; color: #9db3bd; font-style: normal; }
+.drive-hud .dh-air, .drive-hud .dh-alt { display: none; }
+.drive-hud.flight .dh-ground { display: none; }
+.drive-hud.flight .dh-air, .drive-hud.flight .dh-alt { display: flex; }
+.drive-hud.flight .dh-air b { color: #74ecff; text-shadow: 0 0 10px #35e0ff77; }
+.drive-hud.flight .dh-alt b { color: #ffd06b; }
 .drive-hud .dh-turbo { position: relative; width: 120px; height: 16px; border: 1px solid #ffffff2e; border-radius: 8px; overflow: hidden; background: #0e1a22; }
 .drive-hud .dh-turbo i { position: absolute; inset: 0; width: 100%; background: linear-gradient(90deg, #1b6fa8, #35e0ff); box-shadow: 0 0 8px #35e0ff88; transition: width .1s linear; }
 .drive-hud .dh-turbo span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; letter-spacing: .1em; color: #d7ecf6; text-shadow: 0 1px 2px #000a; }
 .drive-hud .dh-help { color: #91a9b5; font-size: 9px; letter-spacing: .06em; white-space: nowrap; }
+.drive-hud .dh-help strong { display: block; margin-bottom: 2px; color: #cfeaf6; font-size: 8px; letter-spacing: .18em; }
+.drive-hud.flight .dh-help { color: #b9dce8; }
+.drive-hud.flight .dh-help strong { color: #74ecff; }
 body.compact .drive-hud { bottom: calc(96px + env(safe-area-inset-bottom)); gap: 10px; padding: 7px 12px; }
 body.compact .drive-hud .dh-turbo { width: 84px; }
 body.compact .drive-hud .dh-help { display: none; }
+body.compact .drive-hud.flight .dh-state { min-width: 60px; }
+body.compact .drive-hud.flight .dh-gauge { min-width: 55px; }
+body.compact .drive-hud.flight .dh-gauge b { font-size: 21px; }
 .argo-hint { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 25;
   padding: 8px 13px; border: 1px solid #8fd6ff55; border-radius: 10px; background: #071018d9; color: #b9dbe9;
   font: 700 10px ui-monospace, monospace; letter-spacing: .09em; pointer-events: none; backdrop-filter: blur(7px); }

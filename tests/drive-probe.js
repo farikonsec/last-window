@@ -29,10 +29,16 @@ async () => {
   M.key('w', true); M.key('r', true); M.run(18, 1 / 30, false); M.key('w', false); M.key('r', false);
   report.flight = {speed: b.speed, vVert: b.vVert, turbo: b.turbo, roll: Math.abs(b.roll), thrusting: b.flightThrusting};
   report.poweredFlight = b.flightThrusting && b.speed > beforeFlight.speed && b.vVert > 0 && b.turbo < beforeFlight.turbo;
+  const flightHud = document.querySelector('.drive-hud');
+  const airGauge = document.querySelector('.dh-air');
+  const altGauge = document.querySelector('.dh-alt');
+  report.flightHud = !!flightHud?.classList.contains('flight') && getComputedStyle(airGauge).display !== 'none'
+    && getComputedStyle(altGauge).display !== 'none' && /VACUUM FLIGHT/.test(document.querySelector('.dh-help')?.textContent || '')
+    && Number(document.querySelector('.dh-air b')?.textContent) > 0 && Number(document.querySelector('.dh-alt b')?.textContent) > 0;
 
   report.errors = M.errors();
   report.captured = (() => {try {M.capture(); return true;} catch (e) {report.captureError = String(e); return false;}})();
-  report.passed = report.ready && report.moved && report.cruiseSpeed > 8 && report.slipped && report.reversed && report.poweredFlight &&
+  report.passed = report.ready && report.moved && report.cruiseSpeed > 8 && report.slipped && report.reversed && report.poweredFlight && report.flightHud &&
     report.captured && report.errors.length === 0;
   return report;
 }

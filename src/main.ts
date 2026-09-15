@@ -7,7 +7,7 @@ import {GameAudio, type Warning} from './render/audio';
 import {Effects, makePlume, makeRcsPuff} from './render/effects';
 import {Tracks} from './render/tracks';
 import {setupTouch} from './render/touch';
-import {BUGGY, Buggy, NO_DRIVE, type BuggyControls} from './sim/buggy';
+import {BUGGY, Buggy, buggyContactLift, NO_DRIVE, type BuggyControls} from './sim/buggy';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {bodyToInertial, circularState, inertialToBody, surfaceVelocity} from './sim/orbit';
 import {LabelLayer, type LabelItem} from './render/labels';
@@ -339,7 +339,9 @@ const equipment: Record<string, [string, string, number]> = {
 
 // Cache the buggy's wheel nodes once loaded so they can be spun and steered each frame.
 const buggyWheels: {node: T.Object3D; front: boolean; side: number; axle: number; restZ: number}[] = [];
-const buggyFlightGlows: T.Object3D[] = [];
+const buggyLiftFx: T.Object3D[] = [];
+const buggyAttitudeFx: T.Object3D[] = [];
+const buggyRearGlows: T.Object3D[] = [];
 {
   const holder = hardware.objects.get('buggy');
   if (holder) for (const tag of ['fl', 'fr', 'rl', 'rr']) {
@@ -347,8 +349,11 @@ const buggyFlightGlows: T.Object3D[] = [];
     if (node) buggyWheels.push({node, front: tag[0] === 'f', side: tag[1] === 'r' ? 1 : -1,
       axle: tag[0] === 'f' ? 1 : -1, restZ: node.position.z});
   }
-  holder?.traverse(node => {if (node.name.startsWith('flight_glow_') || node.name.startsWith('righting_glow_')
-    || node.name.startsWith('flight_plume_') || node.name.startsWith('righting_plume_')) buggyFlightGlows.push(node);});
+  holder?.traverse(node => {
+    if (node.name.startsWith('flight_glow_') || node.name.startsWith('flight_plume_')) buggyLiftFx.push(node);
+    if (node.name.startsWith('righting_glow_') || node.name.startsWith('righting_plume_')) buggyAttitudeFx.push(node);
+    if (node.name.startsWith('turbo_glow_')) buggyRearGlows.push(node);
+  });
 }
 
 /** Stand the buggy model on the slope (nose-up in the air), lift it while jumping, and spin and steer its wheels. */
@@ -364,10 +369,18 @@ function placeBuggy() {
   const terrainRoll = buggy.airborne ? 0 : Math.atan2(h(rgt.lat, rgt.lon) - h(lft.lat, lft.lon), tr);
   let roll = terrainRoll + buggy.roll;
   if (buggy.airborne) pitch = 0.5 * Math.atan2(buggy.vVert, Math.max(4, Math.abs(buggy.speed)));
-  // The authored origin is at upright tyre contact. Raise a rolled body by its rotated half-width so its collision
-  // envelope rests on the surface instead of pivoting through and becoming submerged in the Moon.
-  const contactLift = buggy.airborne ? 0
-    : Math.abs(Math.sin(buggy.roll)) * 1.65 + Math.max(0, -Math.cos(buggy.roll)) * 0.8;
+  // Keep the full hull above the highest terrain within its footprint. This measured GLB envelope plus eight nearby
+  // samples prevents a side-resting buggy from being submerged by either its roll or a crater-rim height step.
+  const centreH = h(buggy.lat, buggy.lon);
+  let terrainRise = 0;
+  if (!buggy.airborne) for (const fore of [-BUGGY.hullHalfLength, 0, BUGGY.hullHalfLength]) {
+    for (const across of [-BUGGY.hullHalfWidth, 0, BUGGY.hullHalfWidth]) {
+      if (fore === 0 && across === 0) continue;
+      const sample = buggy.offset(Math.hypot(fore, across), buggy.heading + Math.atan2(across, fore));
+      terrainRise = Math.max(terrainRise, h(sample.lat, sample.lon) - centreH);
+    }
+  }
+  const contactLift = buggy.airborne ? 0 : buggyContactLift(buggy.roll, terrainRise);
   holder.matrix.copy(hardware.placementMatrix({
     name: 'buggy', url: '', lat: buggy.lat, lon: buggy.lon, heading: buggy.heading * 180 / Math.PI,
     lift: buggy.altitude + contactLift, pitch, roll,
@@ -387,9 +400,22 @@ function placeBuggy() {
       w.node.position.z += (w.restZ + travel - w.node.position.z) * 0.35;
     }
   }
-  for (const glow of buggyFlightGlows) {
-    glow.visible = buggy.flightThrusting || params.get('thrust') === '1';
-    glow.scale.setScalar(0.8 + 0.25 * Math.sin(fxClock * 45));
+  const fixtureThrust = params.get('thrust') === '1';
+  const liftFiring = fixtureThrust || buggy.airborne && (held.has('r') || held.has('f'));
+  const attitudeFiring = fixtureThrust || buggy.flipped && held.has('r')
+    || buggy.airborne && (held.has('a') || held.has('d'));
+  const forwardFiring = fixtureThrust || buggy.airborne && (held.has('w') || held.has('s'));
+  for (const glow of buggyLiftFx) {
+    glow.visible = liftFiring;
+    glow.scale.setScalar(0.85 + 0.3 * Math.sin(fxClock * 48));
+  }
+  for (const glow of buggyAttitudeFx) {
+    glow.visible = attitudeFiring;
+    glow.scale.setScalar(0.78 + 0.25 * Math.sin(fxClock * 55));
+  }
+  for (const glow of buggyRearGlows) {
+    const pulse = forwardFiring ? 1.45 + 0.3 * Math.sin(fxClock * 52) : 1;
+    glow.scale.setScalar(pulse);
   }
 }
 
@@ -461,11 +487,18 @@ function driveEffects(dt: number) {
 const driveHud = document.createElement('div');
 driveHud.className = 'drive-hud';
 driveHud.hidden = true;
-driveHud.innerHTML = `<div class="dh-state">DRIVE</div><div class="dh-speed"><b>0</b><span>km/h</span></div>
-  <div class="dh-turbo"><i></i><span>TURBO · hold Shift</span></div><div class="dh-help">W/S drive · A/D steer</div>`;
+driveHud.innerHTML = `<div class="dh-state">DRIVE</div>
+  <div class="dh-gauge dh-ground"><small>GROUND</small><div><b>0</b><span>km/h</span></div></div>
+  <div class="dh-gauge dh-air"><small>AIR SPEED</small><div><b>0</b><span>km/h</span></div></div>
+  <div class="dh-gauge dh-alt"><small>ALT AGL</small><div><b>0</b><span>m</span></div><em>0.0 m/s</em></div>
+  <div class="dh-turbo"><i></i><span>TURBO · hold Shift</span></div>
+  <div class="dh-help"><strong>DRIVE</strong> W/S motor & brake · A/D steer · Shift turbo</div>`;
 app.appendChild(driveHud);
 const dhState = driveHud.querySelector<HTMLElement>('.dh-state')!;
-const dhSpeed = driveHud.querySelector('.dh-speed b')!;
+const dhSpeed = driveHud.querySelector('.dh-ground b')!;
+const dhAirSpeed = driveHud.querySelector('.dh-air b')!;
+const dhAltitude = driveHud.querySelector('.dh-alt b')!;
+const dhVertical = driveHud.querySelector('.dh-alt em')!;
 const dhTurbo = driveHud.querySelector<HTMLElement>('.dh-turbo i')!;
 const dhTurboText = driveHud.querySelector<HTMLElement>('.dh-turbo span')!;
 const dhHelp = driveHud.querySelector<HTMLElement>('.dh-help')!;
@@ -473,14 +506,20 @@ function updateDriveHud() {
   driveHud.hidden = !driving;
   if (!driving) return;
   dhSpeed.textContent = (Math.abs(buggy.speed) * 3.6).toFixed(0);
+  const flightSpeed = Math.hypot(buggy.speed, buggy.slip, buggy.vVert);
+  dhAirSpeed.textContent = (flightSpeed * 3.6).toFixed(0);
+  dhAltitude.textContent = buggy.altitude < 100 ? buggy.altitude.toFixed(1) : buggy.altitude.toFixed(0);
+  dhVertical.textContent = `${buggy.vVert >= 0 ? '+' : ''}${buggy.vVert.toFixed(1)} m/s`;
   dhTurbo.style.width = `${Math.round(buggy.turbo * 100)}%`;
   const state = buggy.flipped ? 'ROLLOVER' : buggy.flightThrusting || params.get('thrust') === '1' ? 'POWERED FLIGHT' : buggy.airborne ? 'AIRBORNE' : Math.abs(buggy.speed) < 0.2 ? 'PARKED' : buggy.speed < -0.1 ? 'REVERSE' : 'DRIVE';
   dhState.textContent = state;
   dhState.classList.toggle('air', buggy.airborne || buggy.flipped);
+  driveHud.classList.toggle('flight', buggy.airborne);
+  driveHud.classList.toggle('rollover', buggy.flipped);
   dhTurboText.textContent = buggy.airborne || buggy.flipped ? 'FLIGHT PROP' : 'TURBO · hold Shift';
-  dhHelp.textContent = buggy.flipped ? 'Hold R · fire righting jets'
-    : buggy.airborne ? 'W/S thrust · A/D bank · R/F lift'
-      : 'W/S drive · A/D steer';
+  dhHelp.innerHTML = buggy.flipped ? '<strong>RECOVERY</strong> Hold R · fire side jets to roll upright'
+    : buggy.airborne ? '<strong>VACUUM FLIGHT</strong> W/S forward/retro · A/D turn + bank · R climb · F descend · Shift boost'
+      : '<strong>DRIVE</strong> W/S motor & brake · A/D steer · Shift turbo';
 }
 const labelRay = new T.Raycaster();
 const hardwareOccluded = (name: string, target: V3) => {
@@ -1006,7 +1045,8 @@ function tick(realDt: number, now: number, render = true) {
     rig.el = Math.max(-89, Math.min(89, rig.el + ((held.has('arrowup') ? 1 : 0) - (held.has('arrowdown') ? 1 : 0)) * 60 * realDt));
   }
   if (driving) {
-    // Buggy controls: W accelerate, S brake/reverse, A/D steer, Shift turbo. The lander's keys are idle on the ground.
+    // Ground: W/S motor/brake and A/D steer. In flight those become forward/retro rockets and bank+yaw; R/F climb
+    // and descend, and Shift opens the high-flow forward valve. The flight HUD changes mode and explains the mapping.
     const drive: BuggyControls = {
       throttle: held.has('w') ? 1 : 0,
       brake: held.has('s') ? 1 : 0,
