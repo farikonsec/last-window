@@ -52,6 +52,7 @@ function rockGeometry(seed: number, detail: number) {
 export class RockField {
   group = new T.Group();
   private meshes: {population: Population; mesh: T.InstancedMesh; centre: [number, number] | null}[] = [];
+  private boulders: {x: number; y: number; diameter: number}[] = [];
   private anchor: [number, number, number];
   uniforms: Record<string, T.IUniform>;
 
@@ -135,12 +136,19 @@ export class RockField {
     this.uniforms.earthshine.value = earthshine;
   }
 
+  /** Rendered boulders close enough to strike a vehicle, in the terrain's local metric frame. */
+  collidersNear(lat: number, lon: number, radius: number) {
+    const p = this.terrain.toLocal(lat, lon);
+    return this.boulders.filter(b => Math.hypot(b.x - p.x, b.y - p.y) < radius + b.diameter * 0.5);
+  }
+
   private populate(mesh: T.InstancedMesh, p: Population, cx: number, cy: number) {
     const info = mesh.geometry.getAttribute('rockInfo') as T.InstancedBufferAttribute;
     const m = new T.Matrix4(), q = new T.Quaternion(), s = new T.Vector3(), up = new T.Vector3(), pos = new T.Vector3();
     const yaw = new T.Quaternion(), tilt = new T.Quaternion(), align = new T.Quaternion();
     const DEG = Math.PI / 180;
     let count = 0;
+    if (p === BOULDERS) this.boulders = [];
     const i0 = Math.floor((cx - p.radius) / p.cell), i1 = Math.floor((cx + p.radius) / p.cell);
     const j0 = Math.floor((cy - p.radius) / p.cell), j1 = Math.floor((cy + p.radius) / p.cell);
     for (let j = j0; j <= j1 && count < p.maxInstances; j++) {
@@ -158,6 +166,7 @@ export class RockField {
           const x = (i + terrainHash(p.salt, i, j, k * 10 + 1)) * p.cell, y = (j + terrainHash(p.salt, i, j, k * 10 + 2)) * p.cell;
           const u = Math.max(0.002, terrainHash(p.salt, i, j, k * 10 + 3));
           const diameter = Math.min(p.dMax, p.dMin * u ** (-1 / p.slope));
+          if (p === BOULDERS) this.boulders.push({x, y, diameter});
           const {lat, lon} = this.terrain.fromLocal(x, y);
           const ground = this.terrain.height(lat, lon);
           const cl = Math.cos(lat * DEG), sl = Math.sin(lat * DEG), co = Math.cos(lon * DEG), so = Math.sin(lon * DEG);

@@ -16,14 +16,6 @@ test('it accelerates to the rated top speed and no further', () => {
   expect(b.airborne).toBe(false);
 });
 
-test('turbo lifts the top speed above the motor-only cap and drains the reserve', () => {
-  const b = new Buggy(0, 0, 90);
-  let peak = 0;
-  for (let i = 0; i < 400; i++) {b.step({throttle: 1, brake: 0, steer: 0, turbo: true}, 1 / 30, flat); peak = Math.max(peak, b.speed);}
-  expect(peak).toBeGreaterThan(BUGGY.topSpeed + 1);
-  expect(b.turbo).toBeLessThan(0.5);
-});
-
 test('rolling resistance brings it to a stop when you lift off', () => {
   const b = new Buggy(0, 0, 90);
   for (let i = 0; i < 40; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: false}, 1 / 30, flat);
@@ -43,23 +35,64 @@ test('a climb costs speed and the same slope downhill gives it back', () => {
   expect(down.speed).toBeGreaterThan(up.speed);
 });
 
-test('brakes stop it faster than coasting, then it reverses', () => {
+test('brakes stop it faster than coasting, then it reverses (Moon braking is weak, so it takes a while)', () => {
   const braked = new Buggy(0, 0, 90), coasting = new Buggy(0, 0, 90);
-  for (const b of [braked, coasting]) for (let i = 0; i < 400; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: false}, 1 / 30, flat);
+  for (const b of [braked, coasting]) for (let i = 0; i < 30; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: false}, 1 / 30, flat);
   for (let i = 0; i < 30; i++) {
     braked.step({throttle: 0, brake: 1, steer: 0, turbo: false}, 1 / 30, flat);
     coasting.step(NO_DRIVE, 1 / 30, flat);
   }
   expect(braked.speed).toBeLessThan(coasting.speed);
-  for (let i = 0; i < 120; i++) braked.step({throttle: 0, brake: 1, steer: 0, turbo: false}, 1 / 30, flat);
+  for (let i = 0; i < 600; i++) braked.step({throttle: 0, brake: 1, steer: 0, turbo: false}, 1 / 30, flat);
   expect(braked.speed).toBeLessThan(0); // holding the brake at a stop backs it up
 });
 
-test('a hard turn at speed throws the tail out (slip), and grip pulls it back when you stop steering', () => {
+test('turbo has no top-speed cap: it keeps building past the motor-only limit while the reserve lasts', () => {
   const b = new Buggy(0, 0, 90);
-  for (let i = 0; i < 300; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: false}, 1 / 30, flat);
-  for (let i = 0; i < 20; i++) b.step({throttle: 1, brake: 0, steer: 1, turbo: false}, 1 / 30, flat);
-  expect(Math.abs(b.slip)).toBeGreaterThan(0.3);
+  let peak = 0;
+  for (let i = 0; i < 400; i++) {b.step({throttle: 1, brake: 0, steer: 0, turbo: true}, 1 / 30, flat); peak = Math.max(peak, b.speed);}
+  expect(peak).toBeGreaterThan(BUGGY.topSpeed * 1.6); // well past the 200 km/h motor cap
+  expect(b.turbo).toBeLessThan(0.5);
+});
+
+test('ending turbo leaves the excess speed to bleed away instead of snapping to motor speed', () => {
+  const b = new Buggy(0, 0, 90);
+  for (let i = 0; i < 180; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: true}, 1 / 30, flat);
+  const boosted = b.speed;
+  expect(boosted).toBeGreaterThan(BUGGY.topSpeed);
+  b.step({throttle: 1, brake: 0, steer: 0, turbo: false}, 1 / 30, flat);
+  expect(b.speed).toBeGreaterThan(BUGGY.topSpeed);
+  expect(boosted - b.speed).toBeLessThan(0.1);
+});
+
+test('a crest throws it at about sqrt(g*R): slow stays down, fast flies', () => {
+  const mPerDeg = BUGGY.radius * (Math.PI / 180), R = 80;
+  const crest = {height: (_lat: number, lon: number) => {const x = lon * mPerDeg; return 100 - (x * x) / (2 * R);}};
+  const vLaunch = Math.sqrt(BUGGY.gravity * R); // ~11.4 m/s
+  const slow = new Buggy(0, 0, 90); slow.speed = 0.6 * vLaunch;
+  const fast = new Buggy(0, 0, 90); fast.speed = 1.6 * vLaunch;
+  slow.step(NO_DRIVE, 1 / 30, crest); fast.step(NO_DRIVE, 1 / 30, crest);
+  expect(slow.airborne).toBe(false);
+  expect(fast.airborne).toBe(true);
+});
+
+test('a hard turn at high speed rolls it over, then the crew right it', () => {
+  const b = new Buggy(0, 0, 90);
+  for (let i = 0; i < 200; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: true}, 1 / 30, flat); // get fast
+  for (let i = 0; i < 60 && !b.flipped; i++) b.step({throttle: 0, brake: 0, steer: 1, turbo: false}, 1 / 30, flat);
+  expect(b.flipped).toBe(true);
+  expect(Math.abs(b.roll)).toBeGreaterThan(Math.PI / 2);
+  for (let i = 0; i < 120; i++) b.step(NO_DRIVE, 1 / 30, flat); // ~4 s
+  expect(b.flipped).toBe(false); // righted, upright, stopped
+  expect(Math.abs(b.roll)).toBeLessThan(0.1);
+});
+
+test('a turn throws the tail out (slip), and grip pulls it back when you stop steering', () => {
+  const b = new Buggy(0, 0, 90);
+  for (let i = 0; i < 40; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: false}, 1 / 30, flat); // ~15 m/s
+  for (let i = 0; i < 15; i++) b.step({throttle: 1, brake: 0, steer: 0.3, turbo: false}, 1 / 30, flat); // gentle enough not to flip
+  expect(b.flipped).toBe(false);
+  expect(Math.abs(b.slip)).toBeGreaterThan(0.2);
   for (let i = 0; i < 120; i++) b.step({throttle: 0, brake: 0, steer: 0, turbo: false}, 1 / 30, flat);
   expect(Math.abs(b.slip)).toBeCloseTo(0, 2);
 });

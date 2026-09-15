@@ -5,8 +5,8 @@ async () => {
   const M = window.moonAscent;
   assert(M && M.ready(), 'Game did not load cleanly');
   const {labels, lunarMap, hardware, mission} = M.debug;
-  assert(hardware.objects.size === 6, 'Missing surface hardware');
-  assert(document.querySelectorAll('.label.kind-hardware').length === 7, 'Every model needs a label including ARGO');
+  assert(hardware.objects.size === 7, 'Missing surface hardware');
+  assert(document.querySelectorAll('.label.kind-hardware').length === 8, 'Every model needs a label including ARGO');
   document.querySelector('#label-mode').click(); assert(labels.mode === 'all', 'Label button failed');
   document.querySelector('#label-mode').click(); assert(labels.mode === 'off', 'Labels off failed');
   document.querySelector('#label-mode').click();

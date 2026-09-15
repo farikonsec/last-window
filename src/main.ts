@@ -145,7 +145,7 @@ if (ev) viewer.exposureSettings.mode = Number(ev);
 // ---------------------------------------------------------------------------------------------------------------
 // Views. Positions are Moon-centred EQJ metres (float64); the camera is re-based to the origin every frame.
 
-type ViewName = 'rover' | 'orbit' | 'site' | 'globe' | 'nightside' | 'limb' | 'hover' | 'cross' | 'rille' | 'low' | 'nadir' | 'pad' | 'apollo' | 'lander-up' | 'chase' | 'cockpit' | 'docking' | 'argo';
+type ViewName = 'rover' | 'earth' | 'orbit' | 'site' | 'globe' | 'nightside' | 'limb' | 'hover' | 'cross' | 'rille' | 'low' | 'nadir' | 'pad' | 'apollo' | 'lander-up' | 'chase' | 'cockpit' | 'docking' | 'argo';
 interface Rig {
   /** Camera position, EQJ metres from the Moon's centre. */
   position(): V3;
@@ -265,6 +265,8 @@ function makeRig(name: ViewName): LookRig {
       };
       return rig;
     }
+    // Stable telephoto fixture centred on Earth for ephemeris and exposure regression checks.
+    case 'earth': return groundRig(HADLEY.lat, HADLEY.lon, 4000, earthSite.azimuth, earthSite.elevation, 6);
     // Standing at the landing site, eye height, looking west down-sun toward Hadley Rille: long shadows run away.
     case 'site': return groundRig(HADLEY.lat, HADLEY.lon, 1.7, 262, -4, 70);
     // Beside KESTREL on its pad, sun behind the camera's left shoulder.
@@ -309,7 +311,7 @@ function makeRig(name: ViewName): LookRig {
 // The crew's fast buggy: starts parked beside KESTREL and drives on the same terrain function the lander flies against.
 const buggyStart = HADLEY_HARDWARE.find(p => p.name === 'buggy')!;
 const buggy = new Buggy(buggyStart.lat, buggyStart.lon, buggyStart.heading);
-let wheelSpin = 0, sprayAt = 0;
+let wheelSpin = 0, sprayAt = 0, rockImpactAt = -Infinity;
 let driving = params.get('scenario') === 'rover' || params.get('scenario') === 'drive';
 let chaseDistance = 30;
 let argoCamDistance = 120;
@@ -334,12 +336,13 @@ const equipment: Record<string, [string, string, number]> = {
 };
 
 // Cache the buggy's wheel nodes once loaded so they can be spun and steered each frame.
-const buggyWheels: {node: T.Object3D; front: boolean}[] = [];
+const buggyWheels: {node: T.Object3D; front: boolean; side: number; axle: number; restZ: number}[] = [];
 {
   const holder = hardware.objects.get('buggy');
   if (holder) for (const tag of ['fl', 'fr', 'rl', 'rr']) {
     const node = holder.getObjectByName(`wheel_${tag}`);
-    if (node) buggyWheels.push({node, front: tag[0] === 'f'});
+    if (node) buggyWheels.push({node, front: tag[0] === 'f', side: tag[1] === 'r' ? 1 : -1,
+      axle: tag[0] === 'f' ? 1 : -1, restZ: node.position.z});
   }
 }
 
@@ -352,8 +355,9 @@ function placeBuggy() {
   const f = buggy.offset(wb / 2), b = buggy.offset(-wb / 2);
   const rgt = buggy.offset(tr / 2, buggy.heading + Math.PI / 2), lft = buggy.offset(-tr / 2, buggy.heading + Math.PI / 2);
   let pitch = Math.atan2(h(f.lat, f.lon) - h(b.lat, b.lon), wb);
-  let roll = Math.atan2(h(rgt.lat, rgt.lon) - h(lft.lat, lft.lon), tr);
-  if (buggy.airborne) {pitch = 0.5 * Math.atan2(buggy.vVert, Math.max(4, Math.abs(buggy.speed))); roll *= 0.15;}
+  const terrainRoll = Math.atan2(h(rgt.lat, rgt.lon) - h(lft.lat, lft.lon), tr);
+  let roll = terrainRoll + buggy.roll;
+  if (buggy.airborne) pitch = 0.5 * Math.atan2(buggy.vVert, Math.max(4, Math.abs(buggy.speed)));
   holder.matrix.copy(hardware.placementMatrix({
     name: 'buggy', url: '', lat: buggy.lat, lon: buggy.lon, heading: buggy.heading * 180 / Math.PI,
     lift: buggy.altitude, pitch, roll,
@@ -364,6 +368,14 @@ function placeBuggy() {
   for (const w of buggyWheels) {
     w.node.rotation.x = wheelSpin;
     w.node.rotation.y = w.front ? -steer * 0.5 : 0;
+    if (buggy.airborne) w.node.position.z += (w.restZ - 0.12 - w.node.position.z) * 0.15;
+    else {
+      const fore = w.axle * wb / 2, across = w.side * tr / 2;
+      const sample = buggy.offset(Math.hypot(fore, across), buggy.heading + Math.atan2(across, fore));
+      const plane = h(buggy.lat, buggy.lon) + fore * Math.tan(pitch) + across * Math.tan(terrainRoll);
+      const travel = Math.max(-0.18, Math.min(0.18, h(sample.lat, sample.lon) - plane));
+      w.node.position.z += (w.restZ + travel - w.node.position.z) * 0.35;
+    }
   }
 }
 
@@ -397,6 +409,22 @@ function driveEffects(dt: number) {
     audio.thump(Math.min(1, buggy.landingImpact / 14));
   }
   if (buggy.airborne || Math.abs(buggy.speed) < 1) return;
+  // The same deterministic boulders the player sees are physical obstacles. Small strikes kick the suspension and
+  // scrub speed; large, off-centre hits can start a real rollover through the buggy's angular dynamics.
+  const rock = rocks.collidersNear(buggy.lat, buggy.lon, 1.15).sort((a, b) => b.diameter - a.diameter)[0];
+  if (rock && fxClock - rockImpactAt > 0.35) {
+    rockImpactAt = fxClock;
+    const p = terrain.toLocal(buggy.lat, buggy.lon);
+    const rightX = Math.cos(buggy.heading), rightY = -Math.sin(buggy.heading);
+    const side = Math.sign((rock.x - p.x) * rightX + (rock.y - p.y) * rightY || 1);
+    const severity = Math.min(0.8, 0.08 + rock.diameter * 0.2 + Math.abs(buggy.speed) / 500);
+    buggy.jolt(severity, -side * severity * Math.min(5, Math.abs(buggy.speed) / 12));
+    const back = buggy.offset(-Math.sign(buggy.speed || 1) * (0.3 + rock.diameter * 0.35));
+    buggy.lat = back.lat; buggy.lon = back.lon;
+    const here = buggyGroundPoint(0);
+    effects.dust(here, surfaceVelocity(here), fxClock, 280, [2, 24], groundAt, 2);
+    audio.thump(Math.min(1, severity));
+  }
   // Collisions: shove the buggy back out of anything it drives into, scrub its speed, kick dust and thump.
   const mPerDeg = R_MOON * DEG;
   for (const o of BUGGY_OBSTACLES) {
@@ -430,7 +458,7 @@ function updateDriveHud() {
   if (!driving) return;
   dhSpeed.textContent = (Math.abs(buggy.speed) * 3.6).toFixed(0);
   dhTurbo.style.width = `${Math.round(buggy.turbo * 100)}%`;
-  const state = buggy.airborne ? 'AIRBORNE' : Math.abs(buggy.speed) < 0.2 ? 'PARKED' : buggy.speed < -0.1 ? 'REVERSE' : 'DRIVE';
+  const state = buggy.flipped ? 'ROLLOVER' : buggy.airborne ? 'AIRBORNE' : Math.abs(buggy.speed) < 0.2 ? 'PARKED' : buggy.speed < -0.1 ? 'REVERSE' : 'DRIVE';
   dhState.textContent = state;
   dhState.classList.toggle('air', buggy.airborne);
 }
@@ -994,7 +1022,7 @@ function tick(realDt: number, now: number, render = true) {
   const actuatorsNow = mission.bus.read();
   audio.update({phase: mission.phase, throttle: mission.launched && !mission.result ? actuatorsNow.throttle : 0,
     rcsActive: mission.launched && !mission.result && [...actuatorsNow.rotate, ...actuatorsNow.translate].some(x => Math.abs(x) > 0.2), warning,
-    drive: driving ? {rev: Math.min(1, Math.abs(buggy.speed) / BUGGY.turboSpeed), turbo: held.has('shift') && buggy.turbo > 0, airborne: buggy.airborne} : undefined});
+    drive: driving ? {rev: Math.min(1, Math.abs(buggy.speed) / (BUGGY.topSpeed * 1.5)), turbo: held.has('shift') && buggy.turbo > 0, airborne: buggy.airborne} : undefined});
   controls.querySelector('#sound')!.textContent = `Sound: ${audio.enabled ? 'on' : 'off'} [P]`;
   autopilotBtn.textContent = `Autopilot: ${autopilotOn ? 'on' : 'off'} [Y]`;
   const geo = (r: V3, t: number) => {const p = unit(inertialToBody(r, t)); return {lat: Math.asin(p[2]) * 180 / Math.PI, lon: Math.atan2(p[1], p[0]) * 180 / Math.PI};};
