@@ -14,9 +14,9 @@ It runs entirely in the browser (WebGL, no backend). A desktop browser with a GP
 
 <p align="center">
   <img src="docs/media/dock.gif" alt="The docking sight closing on ARGO's port during the final approach" width="46%">
-  <img src="docs/media/dock-out.gif" alt="An outside view of the approach to the mothership above the Moon" width="46%">
+  <img src="docs/media/dock-out.gif" alt="The lander closing on the mothership above the sunlit Moon, seen from outside" width="46%">
 </p>
-<p align="center"><sub>Left: the docking sight on final approach. Right: the same approach from outside, ARGO's port and panels against the limb.</sub></p>
+<p align="center"><sub>Left: the docking sight on final approach. Right: the same approach from outside, KESTREL closing on ARGO above the sunlit Moon.</sub></p>
 
 Relative motion near another orbit is not intuitive — burn toward the target and you drift past it. The HUD works in the LVLH frame and predicts the drift with the Clohessy–Wiltshire equations. Match velocity, line up on the port axis, and close under about 0.2 m/s.
 

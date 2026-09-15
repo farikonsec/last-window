@@ -1075,7 +1075,7 @@ function place(realDt: number) {
   // night side let auto-exposure lift the earthshine-lit scene instead of pinning it dark.
   // Pin exposure to the sunlit-surface brightness whenever the lit Moon fills much of the frame (any altitude up to
   // where it shrinks to a disc), so the surrounding black sky can't pull auto-exposure up and blow the surface white.
-  viewer.surfaceExposure = viewName === 'argo' ? (sunlitAt(mission.argo.r, sunPos) ? 1.6 : null)
+  viewer.surfaceExposure = viewName === 'argo' ? (sunlitAt(mission.argo.r, sunPos) ? ARGO_EXPOSURE : null)
     : len(cameraEqj) < R_MOON * 1.5 && toThree(forward).dot(localUp) < 0.55 && sunHeight > 0.02
       ? (viewName === 'rover' ? 0.26 : 0.18) / (0.12 * sunHeight + 0.015) : null;
   viewer.render(realDt);
@@ -1167,6 +1167,14 @@ const frustum = new T.Frustum(), projScreen = new T.Matrix4();
 /** Brightest sunlit radiance each body can show (Earth's clouds; the Moon's bright highlands). */
 const PEAK_RADIANCE = {earth: 0.78, moon: 0.25};
 /** Keep any sunlit body that is in frame at or below display value ~2 (ACES shoulder). */
+/**
+ * Exposure held near ARGO. Regolith reflects about 11% and ARGO's paint about 80%, so exposing hard for the ship left
+ * the Moon under it almost black — and the same cap was clamping the docking views, which is why they read dark too.
+ * This sits high enough that the lit surface reads as real grey with craters in it, and lets ARGO's white ride up onto
+ * the ACES shoulder (bright, still shaped) rather than pinning the whole frame down to the paint.
+ */
+const ARGO_EXPOSURE = 3.4;
+
 function brightBodyCap(sunPos: V3, earthPos: V3) {
   viewer.camera.updateMatrixWorld();
   projScreen.multiplyMatrices(viewer.camera.projectionMatrix, viewer.camera.matrixWorldInverse);
@@ -1186,7 +1194,7 @@ function brightBodyCap(sunPos: V3, earthPos: V3) {
   const argoPos = apply(sky.mciToEqj, mission.argo.r), argoDistance = len(sub(argoPos, cameraEqj));
   if (argoFrame.visible && argoDistance < 3000 && sunlitAt(mission.argo.r, sunPos)) {
     const rel = sub(argoPos, cameraEqj);
-    if (frustum.intersectsSphere(new T.Sphere(toThree(rel), 40))) cap = Math.min(cap, 1.6 / 0.8);
+    if (frustum.intersectsSphere(new T.Sphere(toThree(rel), 40))) cap = Math.min(cap, ARGO_EXPOSURE / 0.8);
   }
   // Standing on or skimming the Moon, the pixel meter already sees the ground; only cap the Moon as a distant disc.
   if (len(cameraEqj) > R_MOON * 1.5) consider([0, 0, 0], R_MOON, PEAK_RADIANCE.moon);
