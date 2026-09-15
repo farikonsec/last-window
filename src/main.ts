@@ -692,14 +692,21 @@ function reanchorTo(lat: number, lon: number, withField = true) {
 
 /** Travel to a world mission: re-anchor there, stand its stand-in model on the real terrain, and drop the buggy beside
  * it to drive up and inspect. The arrow already showed the real distance; the trip itself is treated as elapsed. */
-/** A sim time at which the Sun rakes the given site at a photogenic elevation, so a visited probe is lit, not in night. */
+/** Sun elevation above the local horizon at a body-fixed site, degrees, at sim time t. */
+function sunElevation(lat: number, lon: number, t: number) {
+  const up = unit(apply(moonFixedToEqj(sky, t), latLonToUnit(lat, lon)));
+  return Math.asin(Math.max(-1, Math.min(1, dot(up, unit(bodiesAt(sky, t).sun))))) * 180 / Math.PI;
+}
+
+/** A sim time at which the Sun rakes the given site at a photogenic elevation, so a visited probe is lit, not in night.
+ * Sampled across a full lunar day at a quarter-day step, since that is what carries the site under the Sun. */
 function sunUpTime(lat: number, lon: number, from: number) {
-  const upBody = latLonToUnit(lat, lon), DAY = 86_400;
+  const DAY = 86_400;
   let best = from, bestEl = -Infinity;
-  for (let k = 0; k <= 30; k++) {
-    const t = from + k * DAY, sun = bodiesAt(sky, t).sun;
-    const el = Math.asin(Math.max(-1, Math.min(1, dot(unit(apply(moonFixedToEqj(sky, t), upBody)), unit(sun))))) * 180 / Math.PI;
-    if (el > 20 && el < 55) return t;
+  for (let k = 0; k <= 120; k++) {
+    const t = from + k * DAY * 0.25;
+    const el = sunElevation(lat, lon, t);
+    if (el > 18 && el < 50) return t;
     if (el > bestEl) {bestEl = el; best = t;}
   }
   return best;
@@ -882,6 +889,14 @@ let trackAnchor = scale(latLonToUnit(terrain.anchorLat, terrain.anchorLon), R_MO
 const tracks = new Tracks((lat, lon, lift) =>
   sub(scale(latLonToUnit(lat, lon), R_MOON + terrain.height(lat, lon) + lift), trackAnchor) as [number, number, number]);
 viewer.scene.add(tracks.group);
+
+// Deep link straight to a world mission, for sharing and screenshots: ?probe=lunokhod2. Runs here, after the terrain,
+// tracks and hardware it re-anchors all exist.
+{
+  const wanted = params.get('probe');
+  const p = wanted ? PROBES.find(x => x.id === wanted) : null;
+  if (p) {setTarget(p); travelTo(p);}
+}
 let fxClock = 0, liftoffDust = false, exploded = false;
 const plume = makePlume();
 const puffs: ReturnType<typeof makeRcsPuff>[] = [];
@@ -1344,7 +1359,7 @@ Object.assign(window, {
   moonAscent: {
     ready: () => viewer.shaderErrors.length === 0,
     texturesLoaded: () => texturesLoaded,
-    debug: {mission, buggy, tracks, audio, effects, argoFrame, ascentFrame, labels, lunarMap, markers, shadows, rings, rocks, viewer, hardware, terrain, fixture: fixturePost},
+    debug: {mission, buggy, tracks, audio, effects, argoFrame, ascentFrame, labels, lunarMap, markers, shadows, rings, rocks, viewer, hardware, terrain, fixture: fixturePost, sunElevation},
     /** Render one frame and return the canvas as a PNG data URL (read within the same task, so no preserveDrawingBuffer). */
     capture: () => {place(1 / 30); return viewer.renderer.domElement.toDataURL('image/png');},
     errors: () => viewer.shaderErrors,
