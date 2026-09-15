@@ -476,7 +476,41 @@ hud.className = 'hud';
 app.appendChild(hud);
 hud.hidden = params.get('telemetry') !== '1';
 const flightHud = new MissionHud(app, mission);
-flightHud.onLaunch = () => {viewName = 'chase'; rig = makeRig(viewName); cameraSelect.value = viewName; warp = 1; document.body.classList.remove('sheet-open');};
+flightHud.onLaunch = () => {viewName = 'chase'; rig = makeRig(viewName); cameraSelect.value = viewName; warp = 1; setSheet(false);};
+/**
+ * Phone menu. A real bottom sheet inside #app, not a body pseudo-element: the old dimmer painted above the whole app
+ * and swallowed every tap, which is why nothing was pressable. Opening it MOVES the desktop panels into the sheet so
+ * there is one scrollable column with big touch targets, and closing puts them back.
+ */
+const sheetBackdrop = document.createElement('div');
+sheetBackdrop.className = 'sheet-backdrop';
+sheetBackdrop.hidden = true;
+const sheet = document.createElement('section');
+sheet.className = 'sheet';
+sheet.hidden = true;
+sheet.innerHTML = `<div class="sheet-grip"></div>
+  <header class="sheet-head"><b>FLIGHT MENU</b><button class="sheet-close" aria-label="Close menu">Close</button></header>
+  <div class="sheet-body"></div>`;
+app.append(sheetBackdrop, sheet);
+const sheetBody = sheet.querySelector<HTMLElement>('.sheet-body')!;
+let sheetOpen = false;
+function setSheet(open: boolean) {
+  if (open === sheetOpen) return;
+  sheetOpen = open;
+  document.body.classList.toggle('sheet-open', open);
+  sheetBackdrop.hidden = !open;
+  sheet.hidden = !open;
+  if (open) sheetBody.append(controls, flightHud.panel);
+  else app.append(controls, flightHud.panel);
+}
+sheetBackdrop.addEventListener('pointerdown', () => setSheet(false));
+sheet.querySelector<HTMLButtonElement>('.sheet-close')!.onclick = () => setSheet(false);
+// Picking a camera, launching or switching mission drops you straight back into the view.
+sheet.addEventListener('click', e => {
+  if ((e.target as HTMLElement).closest('#camera-view, [data-action=launch], [data-action=reset], #mission-mode, #drive, [data-attitude]')) setSheet(false);
+});
+flightHud.onMenu = () => setSheet(!sheetOpen);
+
 const touchUI = setupTouch({
   parent: app,
   press: (key, down) => document.body.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', {key, bubbles: true})),

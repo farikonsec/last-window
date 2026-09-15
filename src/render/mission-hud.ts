@@ -31,6 +31,8 @@ export class MissionHud {
   readonly panel = document.createElement('section');
   onLaunch = () => {};
   onReset = () => {};
+  /** Asks the app to open or close the phone menu. */
+  onMenu = () => {};
   private readouts: HTMLElement;
   private throttle: HTMLInputElement;
   private last = -Infinity;
@@ -66,15 +68,10 @@ export class MissionHud {
         <button data-mini-att="stabilize">HOLD</button><button data-mini-att="dock">DOCK</button><button data-mini-att="match">MATCH</button>
       </div>`;
     parent.appendChild(this.mini);
-    const menuBtn = this.mini.querySelector<HTMLButtonElement>('.mini-menu')!;
-    const setMenu = (open: boolean) => {document.body.classList.toggle('sheet-open', open); menuBtn.textContent = open ? '✕' : '☰'; menuBtn.setAttribute('aria-label', open ? 'Close flight menu' : 'Open flight menu');};
-    menuBtn.addEventListener('click', () => setMenu(!document.body.classList.contains('sheet-open')));
+    // The menu itself is owned by main.ts (it has to move the panels into the sheet); this just asks for a toggle.
+    this.mini.querySelector<HTMLButtonElement>('.mini-menu')!.addEventListener('click', () => this.onMenu());
     this.mini.querySelector<HTMLButtonElement>('[data-mini=launch]')!.onclick = () => {if (this.mission.launch()) this.onLaunch();};
     this.mini.querySelectorAll<HTMLButtonElement>('[data-mini-att]').forEach(b => b.onclick = () => {this.mission.attitudeMode = b.dataset.miniAtt as AttitudeMode;});
-    // Tapping the dimmed backdrop (anywhere outside the panels and the strip) closes the menu.
-    document.addEventListener('pointerdown', e => {
-      if (document.body.classList.contains('sheet-open') && !(e.target as HTMLElement).closest('.mission-panel, .nav-controls, .mini-hud')) setMenu(false);
-    });
     this.debrief.querySelector<HTMLButtonElement>('[data-debrief=retry]')!.onclick = () => this.onReset();
     this.debrief.querySelector<HTMLButtonElement>('[data-debrief=watch]')!.onclick = () => {this.dismissed = true; this.debrief.hidden = true;};
   }
