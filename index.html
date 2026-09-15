@@ -1,1 +1,12 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="theme-color" content="#05070a"><title>LAST WINDOW / Moon Ascent</title></head><body><div id="app"></div><script type="module" src="/src/main.ts"></script></body></html>
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="theme-color" content="#05070a"><title>LAST WINDOW / Moon Ascent</title>
+<script>
+// A browser holding an old cached index.html asks for a stylesheet hash that no longer exists, and the game renders
+// with no CSS at all: white page, serif text, panels in normal flow. Detect that and fetch a fresh copy once.
+addEventListener('load', function () {
+  var dev = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  var styled = getComputedStyle(document.body).backgroundColor === 'rgb(0, 0, 0)';
+  if (dev || styled || /(\?|&)fresh=/.test(location.search)) return;
+  location.replace(location.pathname + (location.search ? location.search + '&' : '?') + 'fresh=' + Date.now());
+});
+</script>
+</head><body><div id="app"></div><script type="module" src="/src/main.ts"></script></body></html>
