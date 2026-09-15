@@ -1,5 +1,5 @@
 import {expect, test} from 'bun:test';
-import {scoreDock, medalFor} from '../src/sim/scoring';
+import {scoreDock, scoreLanding, medalFor} from '../src/sim/scoring';
 import {KESTREL} from '../src/sim/vehicle';
 
 const perfect = {closingSpeed: 0.05, lateral: 0.05, misalignment: 1, rcsLeft: KESTREL.rcsPropellantCapacity * 0.98, seconds: 500};
@@ -29,4 +29,13 @@ test('medal thresholds', () => {
   expect(medalFor(95)).toBe('gold');
   expect(medalFor(75)).toBe('silver');
   expect(medalFor(50)).toBe('bronze');
+});
+
+test('a gentle, upright, on-target landing earns gold and a hard one does not', () => {
+  const good = scoreLanding({speed: 0.8, tilt: 1.2, distance: 180, mainLeft: KESTREL.mainPropellantCapacity * 0.3, seconds: 650});
+  expect(good.medal).toBe('gold');
+  const rough = scoreLanding({speed: 2.8, tilt: 10, distance: 9000, mainLeft: KESTREL.mainPropellantCapacity * 0.05, seconds: 1400});
+  expect(rough.total).toBeLessThan(good.total);
+  expect(rough.medal).not.toBe('gold');
+  expect(good.parts.map(p => p.label)).toEqual(['Touchdown', 'Attitude', 'Precision', 'Propellant left', 'Time']);
 });

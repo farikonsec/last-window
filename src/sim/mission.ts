@@ -77,6 +77,8 @@ export class Mission {
   captureRemaining = 0;
   /** Contact quality at soft capture, for scoring the run. */
   dockingContact: {closingSpeed: number; lateral: number; misalignment: number} | null = null;
+  /** Touchdown quality at the end of a descent, for scoring the landing. */
+  landingContact: {speed: number; tilt: number; distance: number} | null = null;
   probeDamaged = false;
   effectiveWarp = 1;
   private accumulator = 0;
@@ -177,7 +179,7 @@ export class Mission {
    * of the pad, flying engine-first along the retrograde so the pilot can brake straight into the landing. This is the
    * Apollo PDI geometry: roughly 1.7 km/s of horizontal speed to kill before touchdown.
    */
-  startDescent(leadDistance = 420_000, altitude = 15_000) {
+  startDescent(leadDistance = 358_000, altitude = 15_000) {
     const target = landedAt(this.site, this.state.t, KESTREL, [0, 0, 1], this.env).r;
     const n = unit(this.orbit.normal);
     const radial = unit(target);
@@ -269,7 +271,12 @@ export class Mission {
       this.accumulator = Math.max(0, this.accumulator - FLIGHT_DT);
       if (this.state.status === 'crashed') {this.result = 'surface-impact'; this.impactSpeed = this.state.contact?.speed ?? 0;}
       // A soft touchdown wins the descent mission; on an ascent it just means you never made orbit.
-      else if (previous.status === 'flying' && this.state.status === 'landed') {this.result = this.mode === 'descent' ? 'touchdown' : 'landed-back'; this.impactSpeed = this.state.contact?.speed ?? 0;}
+      else if (previous.status === 'flying' && this.state.status === 'landed') {
+        this.result = this.mode === 'descent' ? 'touchdown' : 'landed-back';
+        this.impactSpeed = this.state.contact?.speed ?? 0;
+        const pad = landedAt(this.site, this.state.t, KESTREL, [0, 0, 1], this.env).r;
+        this.landingContact = {speed: this.state.contact?.speed ?? 0, tilt: (this.state.contact?.tilt ?? 0) * 180 / Math.PI, distance: len(sub(this.state.r, pad))};
+      }
       const before = circularState(this.orbit, previous.t), after = this.argo;
       const previousRel = this.portRelative(previous, before);
       const rel = this.dockingRelative;

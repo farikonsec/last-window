@@ -2,11 +2,10 @@ import {G0} from '../sim/constants';
 import {dot, len, rotate, unit} from '../sim/vec';
 import {KESTREL, MOTHERSHIP, altitudeAboveGround} from '../sim/vehicle';
 import {RESULT_TEXT, type AttitudeMode, type Mission} from '../sim/mission';
-import {scoreDock} from '../sim/scoring';
+import {scoreDock, scoreLanding} from '../sim/scoring';
 
-const BEST_KEY = 'moon-ascent.best-dock';
-const readBest = () => {try {return Number(localStorage.getItem(BEST_KEY)) || 0;} catch {return 0;}};
-const writeBest = (total: number) => {try {localStorage.setItem(BEST_KEY, String(total));} catch {/* storage unavailable */}};
+const readBest = (key: string) => {try {return Number(localStorage.getItem(`moon-ascent.best-${key}`)) || 0;} catch {return 0;}};
+const writeBest = (key: string, total: number) => {try {localStorage.setItem(`moon-ascent.best-${key}`, String(total));} catch {/* storage unavailable */}};
 
 const duration = (s: number) => `${Math.floor(Math.abs(s) / 60).toString().padStart(2, '0')}:${Math.floor(Math.abs(s) % 60).toString().padStart(2, '0')}`;
 const distance = (m: number) => Number.isFinite(m) ? `${(m / 1000).toFixed(1)} km` : 'ESCAPE';
@@ -96,12 +95,15 @@ export class MissionHud {
     this.debrief.querySelector('.debrief-detail')!.textContent = text.detail;
     const row = (k: string, v: string) => `<dt>${k}</dt><dd>${v}</dd>`;
     const flight = m.launched ? s.t - m.liftoffTime : 0;
-    const score = success && m.dockingContact
-      ? scoreDock({...m.dockingContact, rcsLeft: s.rcsPropellant, seconds: flight}) : null;
+    // Both missions are scored: a dock on contact quality and RCS, a landing on touch, attitude, precision and fuel.
+    const score = m.result === 'touchdown' && m.landingContact
+      ? scoreLanding({...m.landingContact, mainLeft: s.mainPropellant, seconds: flight})
+      : success && m.dockingContact ? scoreDock({...m.dockingContact, rcsLeft: s.rcsPropellant, seconds: flight}) : null;
+    const scoreKey = m.result === 'touchdown' ? 'landing' : 'dock';
     this.debrief.querySelector('dl')!.innerHTML = [
       row('Flight time', duration(flight)),
       m.impactSpeed ? row('Impact speed', `${m.impactSpeed.toFixed(1)} m/s`) : '',
-      row('Launch timing', m.launched ? `${(m.liftoffTime - m.window.liftoffTime).toFixed(1)} s off window` : 'did not launch'),
+      m.mode === 'descent' ? '' : row('Launch timing', m.launched ? `${(m.liftoffTime - m.window.liftoffTime).toFixed(1)} s off window` : 'did not launch'),
       row('Propellant left', `${(s.mainPropellant / KESTREL.mainPropellantCapacity * 100).toFixed(0)}% main · ${(s.rcsPropellant / KESTREL.rcsPropellantCapacity * 100).toFixed(0)}% RCS`),
       row('Battery', `${s.batteryKWh.toFixed(1)} kWh`),
       success ? row('Contact', m.probeDamaged ? 'probe damaged on an earlier attempt' : 'clean first capture') : '',
@@ -110,9 +112,9 @@ export class MissionHud {
     const badge = this.debrief.querySelector<HTMLElement>('.medal')!;
     badge.hidden = !score;
     if (score) {
-      const best = readBest();
+      const best = readBest(scoreKey);
       const beat = score.total > best;
-      if (beat) writeBest(score.total);
+      if (beat) writeBest(scoreKey, score.total);
       badge.className = `medal ${score.medal}`;
       badge.textContent = `${score.medal.toUpperCase()} · ${score.total}/100${beat ? ' · NEW BEST' : best ? ` · best ${best}` : ''}`;
     }
