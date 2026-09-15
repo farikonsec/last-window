@@ -4,8 +4,8 @@ import {BUGGY, Buggy, NO_DRIVE} from '../src/sim/buggy';
 const flat = {height: () => 0};
 /** A gentle east-facing slope (~9°): height rises with longitude, shallow enough that the wheels never leave it. */
 const hill = {height: (_lat: number, lon: number) => lon * 5_000};
-/** A ramp (~30°) that climbs to a crest at lon=0.02° then falls away — an east-driven jump. */
-const ramp = {height: (_lat: number, lon: number) => (lon < 0.02 ? lon * 18_000 : Math.max(0, 360 - (lon - 0.02) * 18_000))};
+/** A ski-jump: a gentle climb to a crest at lon=0.02° then a steep lip that drops away — an east-driven jump. */
+const ramp = {height: (_lat: number, lon: number) => (lon < 0.02 ? lon * 8_000 : Math.max(0, 160 - (lon - 0.02) * 120_000))};
 /** A flat mesa that drops off a cliff to -60 m east of lon=0.003°. */
 const cliff = {height: (_lat: number, lon: number) => (lon < 0.003 ? 0 : -60)};
 
@@ -26,7 +26,7 @@ test('turbo lifts the top speed above the motor-only cap and drains the reserve'
 
 test('rolling resistance brings it to a stop when you lift off', () => {
   const b = new Buggy(0, 0, 90);
-  for (let i = 0; i < 300; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: false}, 1 / 30, flat);
+  for (let i = 0; i < 40; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: false}, 1 / 30, flat);
   expect(b.speed).toBeGreaterThan(0.5);
   for (let i = 0; i < 3000; i++) b.step(NO_DRIVE, 1 / 30, flat);
   expect(b.speed).toBeCloseTo(0, 1);
@@ -66,14 +66,14 @@ test('a hard turn at speed throws the tail out (slip), and grip pulls it back wh
 
 test('cresting a ramp fast launches it, and low gravity keeps it up for a while', () => {
   const b = new Buggy(0, 0.014, 90); // just below the crest at lon 0.02
-  let peakAltitude = 0, airborneSteps = 0;
-  for (let i = 0; i < 700; i++) {
-    b.step({throttle: 1, brake: 0, steer: 0, turbo: true}, 1 / 30, ramp);
-    if (b.airborne) {airborneSteps++; peakAltitude = Math.max(peakAltitude, b.altitude);}
+  let peakAltitude = 0, airborneSteps = 0, sawDescent = false;
+  for (let i = 0; i < 1200; i++) {
+    b.step({throttle: 1, brake: 0, steer: 0, turbo: false}, 1 / 30, ramp);
+    if (b.airborne) {airborneSteps++; peakAltitude = Math.max(peakAltitude, b.altitude); if (b.vVert < 0) sawDescent = true;}
   }
   expect(airborneSteps).toBeGreaterThan(10); // it hangs, doesn't just clip one frame
   expect(peakAltitude).toBeGreaterThan(5);
-  expect(b.vVert).toBeLessThan(0); // and gravity is pulling it back down
+  expect(sawDescent).toBe(true); // and gravity pulls it back down
 });
 
 test('driving off a cliff edge puts it in the air and it falls', () => {

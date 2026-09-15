@@ -243,11 +243,11 @@ function makeRig(name: ViewName): LookRig {
       const up = () => unit(at(buggy.lat, buggy.lon, 0));
       const rig = lookRig(target, up, 0, -12, 60);
       rig.position = () => {
-        // Pull back and drop lower as speed rises, for a sense of rush; never below the ground between camera and car.
-        const back = 8 + Math.min(9, Math.abs(buggy.speed) * 0.28);
+        // Pull back and lift a little as speed rises, for a sense of rush; never below the ground between it and the car.
+        const back = 9 + Math.min(24, Math.abs(buggy.speed) * 0.32);
         const behind = buggy.offset(-back);
         const floor = Math.max(terrain.height(behind.lat, behind.lon), terrain.height(buggy.lat, buggy.lon)) + buggy.altitude;
-        return at(behind.lat, behind.lon, floor + 3.4);
+        return at(behind.lat, behind.lon, floor + 3.4 + Math.min(3, Math.abs(buggy.speed) * 0.03));
       };
       rig.look = () => ({forward: sub(target(), rig.position()), up: up()});
       return rig;

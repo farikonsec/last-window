@@ -30,16 +30,16 @@ export interface BuggyGround {
 }
 
 export const BUGGY = {
-  /** Flat-ground top speed under motor alone, m/s (~65 km/h — this is a purpose-built machine, not the Apollo LRV). */
-  topSpeed: 18,
-  /** Top speed with turbo lit, m/s (~110 km/h). */
-  turboSpeed: 30,
+  /** Flat-ground top speed under motor alone, m/s (200 km/h — a purpose-built machine, not the Apollo LRV). */
+  topSpeed: 55.6,
+  /** Top speed with turbo lit, m/s (400 km/h). */
+  turboSpeed: 111.1,
   /** Motor acceleration at full throttle, m/s^2. */
-  power: 7,
+  power: 13,
   /** Extra acceleration turbo adds, m/s^2. */
-  turboPower: 9,
+  turboPower: 20,
   /** Braking deceleration, m/s^2. */
-  braking: 11,
+  braking: 18,
   /** Reverse top speed, m/s. */
   reverseSpeed: 5,
   /** Rolling resistance on regolith, m/s^2. */
@@ -53,8 +53,11 @@ export const BUGGY = {
   /** Turbo reserve drain per second while lit, and recharge per second while off (reserve is 0..1, ~8 s of boost). */
   turboDrain: 0.12,
   turboCharge: 0.05,
-  /** Suspension travel, m: the wheels can reach this far below the chassis before it counts as airborne. */
+  /** Suspension travel, m: the wheels can reach this far below the chassis at a standstill before it counts as air. */
   suspension: 0.45,
+  /** How much further the wheels can follow the ground per metre travelled this step; keeps it planted at speed so it
+   * only flies off genuinely steep rims and edges, not every ripple. Effectively the tangent of the launch slope. */
+  stick: 1.3,
   /** Landing vertical speed, m/s, above which the touchdown is hard: it scrubs speed and jolts. */
   hardLanding: 8,
   /** Lunar surface gravity, m/s^2. */
@@ -162,9 +165,10 @@ export class Buggy {
     const wasAirborne = this.airborne;
     this.vVert -= BUGGY.gravity * dt;
     const worldH = groundBefore + this.altitude + this.vVert * dt;
-    // Suspension travel keeps the wheels on rough or steeply-sloped ground; only a gap past it is real air, so the
-    // buggy soaks up crater relief at speed instead of skipping like a stone.
-    if (worldH <= groundAfter + BUGGY.suspension) {
+    // Suspension travel keeps the wheels on rough or sloped ground; the reach grows with how far the buggy travelled
+    // this step, so at speed it follows gentle relief and only a gap past a genuinely steep rim or edge is real air.
+    const reach = BUGGY.suspension + Math.abs(this.speed) * dt * BUGGY.stick;
+    if (worldH <= groundAfter + reach) {
       // On the ground. A heavy arrival off a fall scrubs speed and is reported; the wheels then track the surface's
       // own vertical velocity (signed), so a sustained slope neither floats the chassis nor snags it.
       if (wasAirborne && -this.vVert > BUGGY.hardLanding) {this.landingImpact = -this.vVert; this.speed *= 0.4; this.slip = 0;}
