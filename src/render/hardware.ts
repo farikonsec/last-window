@@ -13,6 +13,8 @@ export const hardwareLight = {
   upDir: {value: new T.Vector3(0, 0, 1)},
   earthshine: {value: 0},
   groundRadiance: {value: 0.02},
+  /** Soft inspection-camera fill used only by ARGO's dedicated orbit view so the shaded truss remains readable. */
+  inspectionFill: {value: 0},
   /** KESTREL's docking floodlight: camera-relative position, beam axis, and radiant intensity (0 = off). */
   lampPos: {value: new T.Vector3()},
   lampDir: {value: new T.Vector3(0, 0, 1)},
@@ -58,7 +60,7 @@ export function hardwareMaterial(source: T.MeshStandardMaterial, shadows: SunSha
       ${shadows.glsl}
       uniform float exposure; uniform vec3 sunDir; uniform vec3 earthDir; uniform vec3 upDir; uniform float earthshine;
       uniform float solarVisibility; uniform float receiveSunShadows;
-      uniform float groundRadiance; uniform vec3 lampPos; uniform vec3 lampDir; uniform float lampIntensity; uniform vec3 baseColour; uniform float metalness; uniform float roughness;
+      uniform float groundRadiance; uniform float inspectionFill; uniform vec3 lampPos; uniform vec3 lampDir; uniform float lampIntensity; uniform vec3 baseColour; uniform float metalness; uniform float roughness;
       uniform vec3 emissiveColour; uniform sampler2D colourMap; uniform float hasMap;
       varying vec3 vNormal; varying vec3 vWorld; varying vec2 vUv;
 
@@ -89,6 +91,7 @@ export function hardwareMaterial(source: T.MeshStandardMaterial, shadows: SunSha
         radiance += Fenv * groundRadiance * groundSeen;
         radiance += albedo * (1.0 - metalness) * groundRadiance * 0.5 * (1.0 - dot(n, upDir));
         radiance += albedo * earthshine * max(dot(n, earthDir), 0.0);
+        radiance += mix(albedo, F0, metalness) * inspectionFill;
         // Docking floodlight: a 40-degree beam from KESTREL's nose, so a target in Earth's shadow or against the Sun
         // still shows its port. Inverse square, capped at 0.3 of full Sun inside ~19 m so the port never blows out.
         if (lampIntensity > 0.0) {

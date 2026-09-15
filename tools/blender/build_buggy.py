@@ -12,7 +12,7 @@ from pathlib import Path
 import bpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import RAD, box, cylinder, empty, export, material, palette, reset, sphere, strut, torus  # noqa: E402
+from common import RAD, box, cone, cylinder, empty, export, material, palette, reset, sphere, strut, torus  # noqa: E402
 
 TRACK = 1.15   # half-distance between left and right wheels (centre to wheel)
 BASE = 1.20    # half-wheelbase (centre to axle); shared 1.25 export scale makes the visible wheelbase 3 m
@@ -113,6 +113,17 @@ def build():
     for i, s in enumerate((-0.55, 0, 0.55)):
         cylinder(f'turbo_{i}', 0.15, 0.35, (s, 1.9, DECK + 0.14), P['engine'], root, rot=(RAD(90), 0, 0), verts=16)
         cylinder(f'turbo_glow_{i}', 0.1, 0.06, (s, 2.06, DECK + 0.14), P['turbo'], root, rot=(RAD(90), 0, 0), verts=16)
+
+    # Eight compact vacuum thrusters give the buggy controlled flight after a jump and can roll it upright. Four point
+    # down for lift; the high side pairs supply roll torque without pretending aerodynamic control exists in vacuum.
+    for i, (x, y) in enumerate(((-0.85, -0.75), (0.85, -0.75), (-0.85, 0.75), (0.85, 0.75))):
+        cylinder(f'flight_lift_{i}', 0.11, 0.2, (x, y, DECK - 0.22), P['engine'], root, verts=14)
+        cylinder(f'flight_glow_{i}', 0.075, 0.045, (x, y, DECK - 0.34), P['turbo'], root, verts=14)
+        cone(f'flight_plume_{i}', 0.045, 0.14, 0.42, (x, y, DECK - 0.56), P['cyan'], root, verts=14)
+    for i, s in enumerate((-1, 1)):
+        cylinder(f'righting_thruster_{i}', 0.1, 0.22, (s * 1.34, 0.45, DECK + 0.72), P['engine'], root, rot=(0, RAD(90), 0), verts=14)
+        cylinder(f'righting_glow_{i}', 0.07, 0.04, (s * 1.47, 0.45, DECK + 0.72), P['turbo'], root, rot=(0, RAD(90), 0), verts=14)
+        cone(f'righting_plume_{i}', 0.04, 0.13, 0.36, (s * 1.66, 0.45, DECK + 0.72), P['cyan'], root, rot=(0, RAD(90), 0), verts=14)
 
     # Wheels and suspension at the four corners.
     for sx in (-1, 1):

@@ -311,10 +311,12 @@ function makeRig(name: ViewName): LookRig {
 // The crew's fast buggy: starts parked beside KESTREL and drives on the same terrain function the lander flies against.
 const buggyStart = HADLEY_HARDWARE.find(p => p.name === 'buggy')!;
 const buggy = new Buggy(buggyStart.lat, buggyStart.lon, buggyStart.heading);
+if (params.get('buggy') === 'rollover') Object.assign(buggy, {flipped: true, roll: Math.PI / 2, speed: 0});
+if (params.get('buggy') === 'flight') Object.assign(buggy, {airborne: true, altitude: 120, vVert: 12, speed: 18, roll: 0.18});
 let wheelSpin = 0, sprayAt = 0, rockImpactAt = -Infinity;
 let driving = params.get('scenario') === 'rover' || params.get('scenario') === 'drive';
 let chaseDistance = 30;
-let argoCamDistance = 120;
+let argoCamDistance = 80;
 let viewName = (params.get('view') as ViewName) ?? 'pad';
 if (params.get('scenario') === 'ascent' || params.get('scenario') === 'descent') viewName = 'chase';
 if (params.get('scenario') === 'rover' || params.get('scenario') === 'drive') viewName = 'rover';
@@ -337,6 +339,7 @@ const equipment: Record<string, [string, string, number]> = {
 
 // Cache the buggy's wheel nodes once loaded so they can be spun and steered each frame.
 const buggyWheels: {node: T.Object3D; front: boolean; side: number; axle: number; restZ: number}[] = [];
+const buggyFlightGlows: T.Object3D[] = [];
 {
   const holder = hardware.objects.get('buggy');
   if (holder) for (const tag of ['fl', 'fr', 'rl', 'rr']) {
@@ -344,6 +347,8 @@ const buggyWheels: {node: T.Object3D; front: boolean; side: number; axle: number
     if (node) buggyWheels.push({node, front: tag[0] === 'f', side: tag[1] === 'r' ? 1 : -1,
       axle: tag[0] === 'f' ? 1 : -1, restZ: node.position.z});
   }
+  holder?.traverse(node => {if (node.name.startsWith('flight_glow_') || node.name.startsWith('righting_glow_')
+    || node.name.startsWith('flight_plume_') || node.name.startsWith('righting_plume_')) buggyFlightGlows.push(node);});
 }
 
 /** Stand the buggy model on the slope (nose-up in the air), lift it while jumping, and spin and steer its wheels. */
@@ -355,12 +360,17 @@ function placeBuggy() {
   const f = buggy.offset(wb / 2), b = buggy.offset(-wb / 2);
   const rgt = buggy.offset(tr / 2, buggy.heading + Math.PI / 2), lft = buggy.offset(-tr / 2, buggy.heading + Math.PI / 2);
   let pitch = Math.atan2(h(f.lat, f.lon) - h(b.lat, b.lon), wb);
-  const terrainRoll = Math.atan2(h(rgt.lat, rgt.lon) - h(lft.lat, lft.lon), tr);
+  // Once all four tyres leave the ground, the terrain passing below cannot rotate the body.
+  const terrainRoll = buggy.airborne ? 0 : Math.atan2(h(rgt.lat, rgt.lon) - h(lft.lat, lft.lon), tr);
   let roll = terrainRoll + buggy.roll;
   if (buggy.airborne) pitch = 0.5 * Math.atan2(buggy.vVert, Math.max(4, Math.abs(buggy.speed)));
+  // The authored origin is at upright tyre contact. Raise a rolled body by its rotated half-width so its collision
+  // envelope rests on the surface instead of pivoting through and becoming submerged in the Moon.
+  const contactLift = buggy.airborne ? 0
+    : Math.abs(Math.sin(buggy.roll)) * 1.65 + Math.max(0, -Math.cos(buggy.roll)) * 0.8;
   holder.matrix.copy(hardware.placementMatrix({
     name: 'buggy', url: '', lat: buggy.lat, lon: buggy.lon, heading: buggy.heading * 180 / Math.PI,
-    lift: buggy.altitude, pitch, roll,
+    lift: buggy.altitude + contactLift, pitch, roll,
   }));
   holder.updateMatrixWorld(true);
   // Wheels roll at speed and the fronts steer; airborne, they keep spinning but don't steer.
@@ -376,6 +386,10 @@ function placeBuggy() {
       const travel = Math.max(-0.18, Math.min(0.18, h(sample.lat, sample.lon) - plane));
       w.node.position.z += (w.restZ + travel - w.node.position.z) * 0.35;
     }
+  }
+  for (const glow of buggyFlightGlows) {
+    glow.visible = buggy.flightThrusting || params.get('thrust') === '1';
+    glow.scale.setScalar(0.8 + 0.25 * Math.sin(fxClock * 45));
   }
 }
 
@@ -448,19 +462,25 @@ const driveHud = document.createElement('div');
 driveHud.className = 'drive-hud';
 driveHud.hidden = true;
 driveHud.innerHTML = `<div class="dh-state">DRIVE</div><div class="dh-speed"><b>0</b><span>km/h</span></div>
-  <div class="dh-turbo"><i></i><span>TURBO · hold Shift</span></div>`;
+  <div class="dh-turbo"><i></i><span>TURBO · hold Shift</span></div><div class="dh-help">W/S drive · A/D steer</div>`;
 app.appendChild(driveHud);
 const dhState = driveHud.querySelector<HTMLElement>('.dh-state')!;
 const dhSpeed = driveHud.querySelector('.dh-speed b')!;
 const dhTurbo = driveHud.querySelector<HTMLElement>('.dh-turbo i')!;
+const dhTurboText = driveHud.querySelector<HTMLElement>('.dh-turbo span')!;
+const dhHelp = driveHud.querySelector<HTMLElement>('.dh-help')!;
 function updateDriveHud() {
   driveHud.hidden = !driving;
   if (!driving) return;
   dhSpeed.textContent = (Math.abs(buggy.speed) * 3.6).toFixed(0);
   dhTurbo.style.width = `${Math.round(buggy.turbo * 100)}%`;
-  const state = buggy.flipped ? 'ROLLOVER' : buggy.airborne ? 'AIRBORNE' : Math.abs(buggy.speed) < 0.2 ? 'PARKED' : buggy.speed < -0.1 ? 'REVERSE' : 'DRIVE';
+  const state = buggy.flipped ? 'ROLLOVER' : buggy.flightThrusting || params.get('thrust') === '1' ? 'POWERED FLIGHT' : buggy.airborne ? 'AIRBORNE' : Math.abs(buggy.speed) < 0.2 ? 'PARKED' : buggy.speed < -0.1 ? 'REVERSE' : 'DRIVE';
   dhState.textContent = state;
-  dhState.classList.toggle('air', buggy.airborne);
+  dhState.classList.toggle('air', buggy.airborne || buggy.flipped);
+  dhTurboText.textContent = buggy.airborne || buggy.flipped ? 'FLIGHT PROP' : 'TURBO · hold Shift';
+  dhHelp.textContent = buggy.flipped ? 'Hold R · fire righting jets'
+    : buggy.airborne ? 'W/S thrust · A/D bank · R/F lift'
+      : 'W/S drive · A/D steer';
 }
 const labelRay = new T.Raycaster();
 const hardwareOccluded = (name: string, target: V3) => {
@@ -702,6 +722,11 @@ argoPip.className = 'argo-pip';
 argoPip.innerHTML = '<b>◇ ARGO · MOTHERSHIP</b><span></span>';
 app.appendChild(argoPip);
 const insetCam = new T.PerspectiveCamera(45, 1.6, 0.1, 1e11);
+const argoHint = document.createElement('div');
+argoHint.className = 'argo-hint';
+argoHint.textContent = 'DRAG / ARROWS · orbit ARGO    WHEEL · range';
+argoHint.hidden = true;
+app.appendChild(argoHint);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Frame
@@ -787,7 +812,9 @@ function place(realDt: number) {
   hardwareLight.upDir.value.copy(localUp);
   hardwareLight.earthshine.value = terrainFrame.earthshine;
   // Sunlit regolith as seen from above: albedo ~0.11 times the Sun's height, plus a little opposition brightening.
-  hardwareLight.groundRadiance.value = 0.11 * Math.max(0, terrainFrame.sunDir.dot(localUp)) * 1.1;
+  hardwareLight.groundRadiance.value = viewName === 'argo' ? 0.12
+    : 0.11 * Math.max(0, terrainFrame.sunDir.dot(localUp)) * 1.1;
+  hardwareLight.inspectionFill.value = viewName === 'argo' ? 0.18 : 0;
   tracks.setLight(Math.max(0, terrainFrame.sunDir.dot(localUp)));
   // Floodlight on while flying within 600 m of ARGO (the docking camera sits just behind it).
   const lampOn = params.get('lamp') !== '0' && separated && !exploded && mission.dockingRange < 600;
@@ -827,10 +854,11 @@ function place(realDt: number) {
   // night side let auto-exposure lift the earthshine-lit scene instead of pinning it dark.
   // Pin exposure to the sunlit-surface brightness whenever the lit Moon fills much of the frame (any altitude up to
   // where it shrinks to a disc), so the surrounding black sky can't pull auto-exposure up and blow the surface white.
-  viewer.surfaceExposure = viewName === 'argo' ? (sunlitAt(mission.argo.r, sunPos) ? 0.6 : null)
+  viewer.surfaceExposure = viewName === 'argo' ? (sunlitAt(mission.argo.r, sunPos) ? 1.6 : null)
     : len(cameraEqj) < R_MOON * 1.5 && toThree(forward).dot(localUp) < 0.55 && sunHeight > 0.02
-      ? 0.18 / (0.12 * sunHeight + 0.015) : null;
+      ? (viewName === 'rover' ? 0.26 : 0.18) / (0.12 * sunHeight + 0.015) : null;
   viewer.render(realDt);
+  argoHint.hidden = viewName !== 'argo';
   dockingSight.hidden = viewName !== 'docking';
   if (!dockingSight.hidden) {
     const p = toThree(sub(apply(sky.mciToEqj, mission.argo.r), cameraEqj)).project(viewer.camera);
@@ -971,6 +999,12 @@ function stepAutopilot(): number {
 
 /** One game frame: input, fixed-step physics, effects, audio, HUD, render. Tests drive it directly. */
 function tick(realDt: number, now: number, render = true) {
+  // ARGO inspection has both mouse drag and continuous keyboard orbit. Arrow keys belong to the camera in this view,
+  // so they do not change KESTREL's throttle at the same time.
+  if (viewName === 'argo') {
+    rig.az += ((held.has('arrowright') ? 1 : 0) - (held.has('arrowleft') ? 1 : 0)) * 60 * realDt;
+    rig.el = Math.max(-89, Math.min(89, rig.el + ((held.has('arrowup') ? 1 : 0) - (held.has('arrowdown') ? 1 : 0)) * 60 * realDt));
+  }
   if (driving) {
     // Buggy controls: W accelerate, S brake/reverse, A/D steer, Shift turbo. The lander's keys are idle on the ground.
     const drive: BuggyControls = {
@@ -978,6 +1012,7 @@ function tick(realDt: number, now: number, render = true) {
       brake: held.has('s') ? 1 : 0,
       steer: (held.has('d') ? 1 : 0) - (held.has('a') ? 1 : 0),
       turbo: held.has('shift'),
+      lift: (held.has('r') ? 1 : 0) - (held.has('f') ? 1 : 0),
     };
     const step = Math.min(realDt, 0.05);
     buggy.step(held.size ? drive : NO_DRIVE, step, terrain);
@@ -986,8 +1021,8 @@ function tick(realDt: number, now: number, render = true) {
   }
   if (autopilotOn) warp = stepAutopilot();
   else if (mission.launched) {
-    if (held.has('arrowup')) mission.throttle = Math.min(1, mission.throttle + realDt * 0.35);
-    if (held.has('arrowdown')) mission.throttle = Math.max(0, mission.throttle - realDt * 0.35);
+    if (viewName !== 'argo' && held.has('arrowup')) mission.throttle = Math.min(1, mission.throttle + realDt * 0.35);
+    if (viewName !== 'argo' && held.has('arrowdown')) mission.throttle = Math.max(0, mission.throttle - realDt * 0.35);
     mission.rotation = [(held.has('i') ? 1 : 0) - (held.has('k') ? 1 : 0), (held.has('j') ? 1 : 0) - (held.has('l') ? 1 : 0), (held.has('u') ? 1 : 0) - (held.has('o') ? 1 : 0)];
     mission.translation = [(held.has('d') ? 1 : 0) - (held.has('a') ? 1 : 0), (held.has('r') ? 1 : 0) - (held.has('f') ? 1 : 0), (held.has('w') ? 1 : 0) - (held.has('s') ? 1 : 0)];
   }
@@ -1022,7 +1057,7 @@ function tick(realDt: number, now: number, render = true) {
   const actuatorsNow = mission.bus.read();
   audio.update({phase: mission.phase, throttle: mission.launched && !mission.result ? actuatorsNow.throttle : 0,
     rcsActive: mission.launched && !mission.result && [...actuatorsNow.rotate, ...actuatorsNow.translate].some(x => Math.abs(x) > 0.2), warning,
-    drive: driving ? {rev: Math.min(1, Math.abs(buggy.speed) / (BUGGY.topSpeed * 1.5)), turbo: held.has('shift') && buggy.turbo > 0, airborne: buggy.airborne} : undefined});
+    drive: driving ? {rev: Math.min(1, Math.abs(buggy.speed) / (BUGGY.topSpeed * 1.5)), turbo: (held.has('shift') || buggy.flightThrusting) && buggy.turbo > 0, airborne: buggy.airborne} : undefined});
   controls.querySelector('#sound')!.textContent = `Sound: ${audio.enabled ? 'on' : 'off'} [P]`;
   autopilotBtn.textContent = `Autopilot: ${autopilotOn ? 'on' : 'off'} [Y]`;
   const geo = (r: V3, t: number) => {const p = unit(inertialToBody(r, t)); return {lat: Math.asin(p[2]) * 180 / Math.PI, lon: Math.atan2(p[1], p[0]) * 180 / Math.PI};};
@@ -1079,6 +1114,7 @@ Object.assign(window, {
     key: (key: string, down = true) => document.body.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', {key, bubbles: true})),
     exposure: () => exposure.value,
     fps: () => viewer.fps,
+    cameraState: () => ({view: viewName, az: rig.az, el: rig.el, fov: rig.fov, argoDistance: argoCamDistance}),
     earthNdc: () => projectToNdc(bodiesAt(sky, simTime).earth),
     sunNdc: () => projectToNdc(bodiesAt(sky, simTime).sun),
     measure: () => {const m = viewer.measure(); return {logAverage: m.logAverage, highlight: m.highlight};},

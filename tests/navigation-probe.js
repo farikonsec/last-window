@@ -26,6 +26,17 @@ async () => {
   assert(close / wide > 0.75 && close / wide < 1.3, 'Zoom changes surface exposure');
   assert(sunward / wide > 0.75 && sunward / wide < 1.3, 'Sun darkens surface');
   assert(M.rowLuminance(2) > 0.02, 'Sunward ground is too dark');
+  // ARGO inspection accepts continuous keyboard orbit as well as the canvas drag handler used by the mouse.
+  M.setView('argo'); const argoBefore = M.cameraState();
+  M.key('ArrowRight', true); M.key('ArrowUp', true); M.run(12, 1 / 30, false); M.key('ArrowRight', false); M.key('ArrowUp', false);
+  const argoAfter = M.cameraState();
+  assert(argoAfter.az > argoBefore.az && argoAfter.el > argoBefore.el, 'ARGO keyboard orbit controls failed');
+  const canvas = document.querySelector('canvas'), mouseBefore = M.cameraState();
+  canvas.dispatchEvent(new PointerEvent('pointerdown', {clientX: 500, clientY: 350, bubbles: true}));
+  dispatchEvent(new PointerEvent('pointermove', {clientX: 620, clientY: 410, bubbles: true}));
+  dispatchEvent(new PointerEvent('pointerup', {clientX: 620, clientY: 410, bubbles: true}));
+  const mouseAfter = M.cameraState();
+  assert(mouseAfter.az !== mouseBefore.az && mouseAfter.el !== mouseBefore.el, 'ARGO mouse-drag orbit control failed');
   const nav = document.querySelector('.nav-controls').getBoundingClientRect();
   assert(nav.left >= 0 && nav.right <= innerWidth, 'Navigation outside viewport');
   const panel = document.querySelector('.mission-panel').getBoundingClientRect();

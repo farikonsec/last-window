@@ -25,6 +25,7 @@ export function setupTouch({parent, press, setThrottle, getThrottle, isDriving}:
     <button class="ttilt" aria-pressed="false">TILT</button>
     <div class="tpad">${PAD_KEYS.map(([label, key]) => `<button class="tbtn" data-key="${key}">${label}</button>`).join('')}</div>
     <div class="tthrottle" role="slider" aria-label="Main engine throttle"><i></i><b>0%</b><span>THR</span></div>
+    <div class="tflight"><button data-key="r">LIFT</button><button data-key="f">DOWN</button></div>
     <button class="tturbo" data-key="shift" aria-label="Turbo">TURBO</button>
     <div class="ttoast" hidden></div>`;
   parent.appendChild(root);
@@ -112,8 +113,8 @@ export function setupTouch({parent, press, setThrottle, getThrottle, isDriving}:
   tiltBtn.addEventListener('pointercancel', endPress);
   tiltBtn.addEventListener('click', () => {if (longFired) {longFired = false; return;} setTilt(!tilt.on);});
 
-  // RCS pad: press-and-hold buttons that map straight to the translation keys.
-  root.querySelectorAll<HTMLButtonElement>('.tbtn').forEach(button => {
+  // RCS and buggy flight buttons: press-and-hold buttons map straight to the shared keyboard controls.
+  root.querySelectorAll<HTMLButtonElement>('.tbtn, .tflight button').forEach(button => {
     const key = button.dataset.key!;
     const up = (e: PointerEvent) => {button.releasePointerCapture?.(e.pointerId); button.classList.remove('on'); press(key, false);};
     button.addEventListener('pointerdown', e => {e.preventDefault(); try {button.setPointerCapture(e.pointerId);} catch {/* synthetic */} button.classList.add('on'); press(key, true);});

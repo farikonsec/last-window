@@ -23,9 +23,11 @@ export interface BuggyControls {
   steer: number;
   /** Boost: while the reserve lasts it keeps adding thrust with no speed cap. */
   turbo: boolean;
+  /** Vertical flight-thruster demand while airborne, -1 (down) .. 1 (up); positive also rights an overturned buggy. */
+  lift?: number;
 }
 
-export const NO_DRIVE: BuggyControls = {throttle: 0, brake: 0, steer: 0, turbo: false};
+export const NO_DRIVE: BuggyControls = {throttle: 0, brake: 0, steer: 0, turbo: false, lift: 0};
 
 /** Terrain the buggy rolls on: metres of elevation at a latitude/longitude in degrees. */
 export interface BuggyGround {
@@ -54,6 +56,14 @@ export const BUGGY = {
   /** Turbo reserve drain per second while lit, and recharge per second while off (reserve is 0..1, ~8 s of boost). */
   turboDrain: 0.12,
   turboCharge: 0.05,
+  /** Vacuum-flight thrusters: forward/retro acceleration, vertical acceleration and attitude authority. */
+  flightForward: 7,
+  flightLift: 4.2,
+  flightTurnRate: 0.65,
+  flightRollPower: 5,
+  flightStabilize: 8,
+  flightDamping: 5,
+  rightingPower: 5,
   /** Half the track width and the centre-of-gravity height, m: their ratio times g is the rollover-tip acceleration. */
   trackHalf: 1.15,
   cgHeight: 0.85,
@@ -89,6 +99,8 @@ export class Buggy {
   private rightTimer = 0;
   /** Turbo reserve, 0..1. */
   turbo = 1;
+  /** True while any airborne or righting rocket is firing; used by the HUD and sound. */
+  flightThrusting = false;
   /** Heading in radians clockwise from north. */
   heading: number;
   /** Set for one step after a hard landing or flip, m/s of the impact, so the caller can jolt and thump. */
@@ -122,10 +134,16 @@ export class Buggy {
     this.landingImpact = 0;
     const groundBefore = ground.height(this.lat, this.lon);
     const controllable = !this.flipped && !this.airborne;
+    const lift = clamp(controls.lift ?? 0, -1, 1);
 
-    // Turbo reserve: drains while lit and actually driving, recharges otherwise.
+    // One finite power/propellant reserve feeds both wheel boost and the compact vacuum-flight thrusters.
     const boosting = controls.turbo && controls.throttle > 0 && this.turbo > 0 && controllable;
-    this.turbo = clamp(this.turbo + (boosting ? -BUGGY.turboDrain : BUGGY.turboCharge) * dt, 0, 1);
+    const airControl = this.airborne && !this.flipped && this.turbo > 0;
+    const righting = this.flipped && lift > 0 && this.turbo > 0;
+    const flightFiring = airControl && (controls.throttle > 0 || controls.brake > 0 || Math.abs(lift) > 0.01 || Math.abs(controls.steer) > 0.01);
+    this.flightThrusting = flightFiring || righting;
+    const reserveRate = boosting || this.flightThrusting ? -BUGGY.turboDrain : !this.airborne && !this.flipped ? BUGGY.turboCharge : 0;
+    this.turbo = clamp(this.turbo + reserveRate * dt, 0, 1);
 
     let turn = 0;
     if (controllable) {
@@ -153,6 +171,14 @@ export class Buggy {
       turn = controls.steer * BUGGY.steerRate * dt * (0.35 + 0.65 * (1 - speedFrac)) * Math.sign(this.speed || 1);
       this.heading += turn;
       this.slip += controls.steer * BUGGY.slipGain * Math.abs(this.speed) * dt;
+    } else if (airControl) {
+      // These are rockets in vacuum, despite the short "air engine" HUD label: W/S thrust fore/aft, R/F lift or
+      // descend, and A/D command a bank plus a small yaw. With Shift held the aft motor opens its high-flow valve.
+      const forwardPower = BUGGY.flightForward * (controls.turbo ? 1.7 : 1);
+      this.speed += (controls.throttle - controls.brake) * forwardPower * dt;
+      this.vVert += lift * BUGGY.flightLift * dt;
+      turn = controls.steer * BUGGY.flightTurnRate * dt;
+      this.heading += turn;
     }
     // Grip is a damping rate, not a fixed acceleration. This preserves a visible tail-out while steering and then
     // settles it smoothly once the driver straightens the wheels.
@@ -160,7 +186,7 @@ export class Buggy {
     if (!Number.isFinite(this.speed)) this.speed = 0;
     this.heading = (this.heading + Math.PI * 2) % (Math.PI * 2);
 
-    this.rollDynamics(dt, turn);
+    this.rollDynamics(dt, turn, controls);
 
     // Advance across the surface: forward along the heading, slip sideways (heading + 90°).
     const forward = this.offset(this.speed * dt), side = this.offset(this.slip * dt, this.heading + Math.PI / 2);
@@ -203,22 +229,29 @@ export class Buggy {
    * g*(track/2)/CoG-height gravity rights it, past it the buggy passes its balance point and goes over. On the Moon g
    * is small, so the tip limit is low and hard cornering at speed flips it. Once over, the crew right it after a beat.
    */
-  private rollDynamics(dt: number, turn: number) {
+  private rollDynamics(dt: number, turn: number, controls: BuggyControls) {
     if (this.flipped) {
-      // Let it settle onto its side/roof, then the crew heave it back upright and it carries on stopped.
-      this.rollRate *= Math.max(0, 1 - 3 * dt);
-      this.roll += this.rollRate * dt;
-      this.rightTimer += dt;
-      if (this.rightTimer > 1.6) {
-        this.roll += (0 - this.roll) * Math.min(1, 4 * dt);
+      // Solid contact holds it on its side. It stays there until R fires the roof/side righting jets; those apply
+      // angular acceleration rather than the old buoyant-looking interpolation through the lunar surface.
+      if ((controls.lift ?? 0) > 0 && this.turbo > 0) {
+        const before = Math.sign(this.roll);
+        this.rollRate += -before * BUGGY.rightingPower * dt;
+        this.rollRate *= Math.max(0, 1 - 1.2 * dt);
+        this.roll += this.rollRate * dt;
+        if (Math.sign(this.roll) !== before || Math.abs(this.roll) < 0.06) {
+          this.roll = 0; this.rollRate = 0; this.flipped = false; this.rightTimer = 0; this.speed = 0;
+        }
+      } else {
+        this.roll = Math.sign(this.roll || 1) * Math.PI / 2;
         this.rollRate = 0;
-        if (Math.abs(this.roll) < 0.03) {this.roll = 0; this.flipped = false; this.rightTimer = 0; this.speed = 0;}
       }
       return;
     }
-    // In free fall gravity acts through the centre of mass, so it cannot right the body. Keep the angular momentum
-    // from take-off or an impact until the wheels touch again.
+    // In free fall gravity acts through the centre of mass. Attitude jets actively damp an accidental launch spin;
+    // A/D overrides the stabiliser to bank and yaw, so the player remains in control instead of flipping at random.
     if (this.airborne) {
+      this.rollRate += (-controls.steer * BUGGY.flightRollPower - this.roll * BUGGY.flightStabilize
+        - this.rollRate * BUGGY.flightDamping) * dt;
       this.roll += this.rollRate * dt;
       return;
     }
@@ -233,8 +266,9 @@ export class Buggy {
     this.rollRate *= Math.max(0, 1 - 2.4 * dt);
     this.roll += this.rollRate * dt;
     if (Math.abs(this.roll) > Math.PI / 2) {
-      // Gone past its side: a crash. Scrub speed and hand control to the righting routine.
-      this.flipped = true; this.rightTimer = 0; this.landingImpact = Math.max(this.landingImpact, Math.abs(this.speed) * 0.5);
+      // The side hits the ground and stops dead instead of continuing through it.
+      this.flipped = true; this.rightTimer = 0; this.roll = Math.sign(this.roll) * Math.PI / 2; this.rollRate = 0;
+      this.landingImpact = Math.max(this.landingImpact, Math.abs(this.speed) * 0.5);
       this.speed *= 0.15; this.slip = 0;
     }
   }

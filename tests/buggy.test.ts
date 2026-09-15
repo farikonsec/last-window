@@ -76,15 +76,31 @@ test('a crest throws it at about sqrt(g*R): slow stays down, fast flies', () => 
   expect(fast.airborne).toBe(true);
 });
 
-test('a hard turn at high speed rolls it over, then the crew right it', () => {
+test('a hard turn at high speed rolls it onto a solid side until the crew fire the righting jets', () => {
   const b = new Buggy(0, 0, 90);
   for (let i = 0; i < 200; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: true}, 1 / 30, flat); // get fast
   for (let i = 0; i < 60 && !b.flipped; i++) b.step({throttle: 0, brake: 0, steer: 1, turbo: false}, 1 / 30, flat);
   expect(b.flipped).toBe(true);
-  expect(Math.abs(b.roll)).toBeGreaterThan(Math.PI / 2);
+  expect(Math.abs(b.roll)).toBeCloseTo(Math.PI / 2, 4);
   for (let i = 0; i < 120; i++) b.step(NO_DRIVE, 1 / 30, flat); // ~4 s
-  expect(b.flipped).toBe(false); // righted, upright, stopped
+  expect(b.flipped).toBe(true); // it cannot float upright through solid regolith
+  expect(Math.abs(b.roll)).toBeCloseTo(Math.PI / 2, 4);
+  for (let i = 0; i < 120 && b.flipped; i++) b.step({...NO_DRIVE, lift: 1}, 1 / 30, flat);
+  expect(b.flipped).toBe(false); // R/righting jets deliberately recover it
   expect(Math.abs(b.roll)).toBeLessThan(0.1);
+});
+
+test('airborne thrusters lift, accelerate and arrest an unwanted roll', () => {
+  const b = new Buggy(0, 0, 90);
+  b.airborne = true; b.altitude = 20; b.speed = 10; b.vVert = 0; b.roll = 0.4; b.rollRate = 1.2;
+  const reserve = b.turbo;
+  for (let i = 0; i < 60; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: false, lift: 1}, 1 / 30, flat);
+  expect(b.airborne).toBe(true);
+  expect(b.speed).toBeGreaterThan(20);
+  expect(b.vVert).toBeGreaterThan(0);
+  expect(Math.abs(b.roll)).toBeLessThan(0.4);
+  expect(b.flipped).toBe(false);
+  expect(b.turbo).toBeLessThan(reserve);
 });
 
 test('a turn throws the tail out (slip), and grip pulls it back when you stop steering', () => {
