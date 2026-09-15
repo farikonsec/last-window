@@ -67,6 +67,27 @@ button:focus-visible, select:focus-visible { outline: 2px solid #8fe8ed; outline
 .target-hud .th-text span { color: #c9b98a; font-size: 10px; }
 .target-hud .th-clear { padding: 4px 7px; font-size: 11px; color: #c9b98a; background: #ffffff10; border: 1px solid #ffffff26; border-radius: 8px; }
 @media (max-width: 700px) { .target-hud { top: auto; bottom: calc(150px + env(safe-area-inset-bottom)); font-size: 10px; } }
+/* Flight manual overlay. */
+.manual-overlay { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; }
+.manual-backdrop { position: absolute; inset: 0; background: #030507cc; backdrop-filter: blur(3px); }
+.manual { position: relative; width: min(760px, calc(100vw - 24px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column;
+  background: #0a1219f5; border: 1px solid #6fb6c455; border-radius: 12px; box-shadow: 0 24px 70px #000c; color: #d6e7ec;
+  font: 13px/1.6 ui-monospace, Menlo, monospace; }
+.manual header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #6fb6c433; }
+.manual header h2 { margin: 0; font-size: 15px; letter-spacing: 2px; color: #9fe8f0; }
+.manual header button { padding: 5px 10px; }
+.manual-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 22px 22px; }
+.manual-body section { padding: 14px 0; border-bottom: 1px solid #ffffff0f; }
+.manual-body h3 { margin: 0 0 6px; font-size: 14px; letter-spacing: 1px; color: #91efc3; }
+.manual-body p { margin: 6px 0; color: #c3d6dd; }
+.manual-body b { color: #eaf6fa; font-weight: 600; }.manual-body i { color: #9fbcc6; font-style: italic; }
+.manual-body code { color: #ffcd73; }
+.manual-body ul { margin: 6px 0; padding-left: 18px; }.manual-body li { margin: 4px 0; color: #c3d6dd; }
+.manual-body .tip { color: #ffd36b; font-size: 12px; }
+.glossary { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 6px 0 0; }
+.glossary dt { color: #9fe8f0; font-weight: 600; }.glossary dd { margin: 0; color: #b6cad2; }
+#manual-btn { color: #ffd36b; border-color: #ffd36b66; }
+@media (max-width: 700px) { .manual { font-size: 12px; } .manual-body { padding: 6px 14px 18px; } .glossary { grid-template-columns: 1fr; gap: 2px 0; } .glossary dd { margin: 0 0 6px; } }
 .throttle-control { display: flex; gap: 6px; align-items: center; margin-top: 10px; font-size: 9px; }.throttle-control input { flex: 1; min-width: 0; accent-color: #80e0d5; }
 .assist-control { display: flex; align-items: center; gap: 6px; font-size: 9px; margin-top: 4px; }.mission-panel p { margin: 8px 0 0; font-size: 9px; color: #7d9aa8; }
 .green { color: #91efc3 !important; }.amber { color: #f5c879 !important; }.red { color: #ff9987 !important; }button:disabled { opacity: .4; cursor: default; }

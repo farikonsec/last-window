@@ -14,6 +14,7 @@ import {LabelLayer, type LabelItem} from './render/labels';
 import {LunarMap} from './render/map';
 import {PLACES, hadleyLandforms} from './sim/atlas';
 import {PROBES, type Probe, bearing as greatCircleBearing, surfaceDistance} from './sim/probes';
+import {Manual} from './render/manual';
 import {R_MOON} from './sim/constants';
 import {angularDiameter, apply, bodiesAt, EARTH_RADIUS, earthPhase, moonFixedToEqj, skyAt, topocentric} from './sim/ephemeris';
 import {latLonToUnit} from './sim/orbit';
@@ -626,6 +627,9 @@ function setTarget(p: Probe | null) {
   targetHud.hidden = !p;
 }
 targetSelect.onchange = () => setTarget(PROBES.find(p => p.id === targetSelect.value) ?? null);
+// Flight manual: a button in the top bar and the ? key open the full science/controls reference.
+const manual = new Manual(app);
+controls.querySelector('div')!.appendChild(manual.button);
 targetHud.querySelector<HTMLButtonElement>('.th-clear')!.onclick = () => setTarget(null);
 function updateTargetHud() {
   if (!target) {targetHud.hidden = true; return;}
