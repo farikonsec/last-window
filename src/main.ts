@@ -314,6 +314,7 @@ const buggy = new Buggy(buggyStart.lat, buggyStart.lon, buggyStart.heading);
 if (params.get('buggy') === 'rollover') Object.assign(buggy, {flipped: true, roll: Math.PI / 2, speed: 0});
 if (params.get('buggy') === 'flight') Object.assign(buggy, {airborne: true, altitude: 120, vVert: 12, speed: 18, roll: 0.18});
 let wheelSpin = 0, sprayAt = 0, rockImpactAt = -Infinity;
+const driveTrail: {lat: number; lon: number}[] = []; // breadcrumb of where the buggy has driven, for the zoomed map
 let driving = params.get('scenario') === 'rover' || params.get('scenario') === 'drive';
 let chaseDistance = 30;
 let argoCamDistance = 80;
@@ -949,7 +950,20 @@ function place(realDt: number) {
   }
   labels.update(viewer.camera, cameraEqj, rings.altitude);
   const geo = terrain.fromLocal(local.x, local.y);
-  lunarMap.draw({lat: geo.lat, lon: geo.lon, heading: rig.az});
+  if (driving) {
+    // Follow the buggy on a zoomed map with a breadcrumb trail, so its movement is actually visible.
+    lunarMap.follow = {lat: buggy.lat, lon: buggy.lon};
+    const last = driveTrail[driveTrail.length - 1];
+    if (!last || Math.hypot(buggy.lat - last.lat, buggy.lon - last.lon) > 0.0006) {
+      driveTrail.push({lat: buggy.lat, lon: buggy.lon});
+      if (driveTrail.length > 240) driveTrail.shift();
+    }
+    lunarMap.track = driveTrail;
+    lunarMap.draw({lat: buggy.lat, lon: buggy.lon, heading: buggy.heading * 180 / Math.PI});
+  } else {
+    lunarMap.follow = null;
+    lunarMap.draw({lat: geo.lat, lon: geo.lon, heading: rig.az});
+  }
   controls.querySelector('#label-mode')!.textContent = `Labels: ${labels.mode} [L]`;
   controls.querySelector('#map-mode')!.textContent = `Map: ${lunarMap.mode} [M]`;
 }
