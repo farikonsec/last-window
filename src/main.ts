@@ -516,6 +516,7 @@ const touchUI = setupTouch({
   press: (key, down) => document.body.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', {key, bubbles: true})),
   setThrottle: v => {mission.throttle = v; mission.assisted = false;},
   getThrottle: () => mission.throttle,
+  isDriving: () => driving,
 });
 const audio = new GameAudio();
 let audioChosen = params.get('sound') === '0';

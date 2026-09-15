@@ -11,11 +11,13 @@ export interface TouchHooks {
   press: (key: string, down: boolean) => void;
   setThrottle: (v: number) => void;
   getThrottle: () => number;
+  /** True while the rover is being driven, so the stick steers the car instead of pitching the ship. */
+  isDriving?: () => boolean;
 }
 
 const PAD_KEYS: [string, string][] = [['FWD', 'w'], ['BACK', 's'], ['LEFT', 'a'], ['RIGHT', 'd'], ['UP', 'r'], ['DN', 'f']];
 
-export function setupTouch({parent, press, setThrottle, getThrottle}: TouchHooks) {
+export function setupTouch({parent, press, setThrottle, getThrottle, isDriving}: TouchHooks) {
   const root = document.createElement('div');
   root.className = 'touch';
   root.innerHTML = `
@@ -43,11 +45,16 @@ export function setupTouch({parent, press, setThrottle, getThrottle}: TouchHooks
     if (want && !down.has(key)) {down.add(key); press(key, true);}
     if (!want && down.has(key)) {down.delete(key); press(key, false);}
   };
-  let stickId = -1;
+  let stickId = -1, lastDriving = false;
   const steer = (dx: number, dy: number) => {
     knob.style.transform = `translate(${dx * 34}px, ${dy * 34}px)`;
-    hold('i', dy < -0.4); hold('k', dy > 0.4);   // pitch: push up = nose up
-    hold('l', dx > 0.4); hold('j', dx < -0.4);   // yaw: push right = nose right
+    const driving = isDriving?.() ?? false;
+    // Swapping modes mid-hold would leave the old axis stuck down.
+    if (driving !== lastDriving) {for (const key of [...down]) hold(key, false); lastDriving = driving;}
+    // Driving: push forward to accelerate, back to brake, sideways to steer. Flying: pitch and yaw.
+    const [up, back, right, left] = driving ? ['w', 's', 'd', 'a'] : ['i', 'k', 'l', 'j'];
+    hold(up, dy < -0.4); hold(back, dy > 0.4);
+    hold(right, dx > 0.4); hold(left, dx < -0.4);
   };
   stick.addEventListener('pointerdown', e => {
     if (stickId !== -1) return;
