@@ -334,7 +334,7 @@ const equipment: Record<string, [string, string, number]> = {
   'apollo15-flag': ['Apollo 15 flag', 'Sun-bleached US flag', 3.2],
   'apollo15-lrv': ['Lunar Roving Vehicle', 'Apollo 15 electric rover · parked after the last EVA', 2.7],
   'apollo15-alsep': ['ALSEP science station', 'Apollo Lunar Surface Experiments Package', 2.3],
-  'un-flag': ['United Nations flag', 'Fictional crew expedition marker', 3.2],
+  'un-flag': ['United States flag', 'Crew expedition marker', 3.2],
   'buggy': ['Crew buggy', 'Fast pressurised rover · drive it with the Drive button', 3.0],
 };
 
@@ -558,9 +558,9 @@ const controls = document.createElement('nav');
 controls.className = 'nav-controls';
 controls.setAttribute('aria-label', 'Surface navigation');
 controls.innerHTML = `<strong>LAST WINDOW <small>HADLEY EXPEDITION / 2031</small></strong>
-  <div><select aria-label="Camera view" id="camera-view">${['pad','chase','cockpit','docking','argo','rover','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
-  <button id="label-mode">Labels: smart [L]</button><button id="map-mode">Map: local [M]</button><button id="sound">Sound: off [P]</button><button id="autopilot">Autopilot: off [Y]</button><button id="mission-mode">Mission: ascent</button><button id="drive">Drive buggy</button></div>
-  <select aria-label="Inspect equipment" id="inspect-equipment"><option value="">Inspect equipment…</option>${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</select>`;
+  <div><select aria-label="Camera view" id="camera-view" title="Switch camera view: cockpit, chase, docking sight, ARGO orbit, rover chase and fixed scenic angles">${['pad','chase','cockpit','docking','argo','rover','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
+  <button id="label-mode" title="Cycle on-screen labels: smart (declutters by range) → all → off [L]">Labels: smart [L]</button><button id="map-mode" title="Cycle the map: local hillshade → whole Moon → off [M]">Map: local [M]</button><button id="sound" title="Toggle music and sound effects [P]">Sound: off [P]</button><button id="autopilot" title="Fly the current mission automatically: fast-forwards to the launch window, then flies ascent, rendezvous and docking [Y]">Autopilot: off [Y]</button><button id="mission-mode" title="Switch between the ascent mission (launch from the pad to ARGO) and the descent mission (land from orbit)">Mission: ascent</button><button id="drive" title="Take control of the surface buggy: W accelerate, S brake/reverse, A/D steer, Shift turbo; airborne it becomes a rocket flyer">Drive buggy</button></div>
+  <select aria-label="Inspect equipment" id="inspect-equipment" title="Jump the camera to a piece of hardware on the surface"><option value="">Inspect equipment…</option>${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</select>`;
 app.appendChild(controls);
 const cameraSelect = controls.querySelector<HTMLSelectElement>('#camera-view')!;
 cameraSelect.value = viewName;
@@ -899,6 +899,10 @@ function place(realDt: number) {
       ? (viewName === 'rover' ? 0.26 : 0.18) / (0.12 * sunHeight + 0.015) : null;
   viewer.render(realDt);
   argoHint.hidden = viewName !== 'argo';
+  if (viewName === 'argo') {
+    const argoAlt = (len(mission.argo.r) - R_MOON) / 1000;
+    argoHint.textContent = `ARGO · ALT ${argoAlt.toFixed(1)} km${mission.launched && !mission.result ? ` · RANGE ${(mission.dockingRange / 1000).toFixed(1)} km` : ''}    DRAG / ARROWS · orbit    WHEEL · zoom`;
+  }
   dockingSight.hidden = viewName !== 'docking';
   if (!dockingSight.hidden) {
     const p = toThree(sub(apply(sky.mciToEqj, mission.argo.r), cameraEqj)).project(viewer.camera);

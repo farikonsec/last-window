@@ -213,7 +213,7 @@ export const HADLEY_HARDWARE: Placement[] = [
   {name: 'apollo15-lrv', url: 'models/lrv.glb', ...offset(APOLLO15_LM, 90, -8), heading: 270},
   {name: 'apollo15-alsep', url: 'models/alsep.glb', ...offset(APOLLO15_LM, -105, 30), heading: 90},
   {name: 'kestrel', url: 'models/kestrel.glb', ...KESTREL_PAD, heading: 132},
-  {name: 'un-flag', url: 'models/flag-un.glb', ...offset(KESTREL_PAD, -12, 9), heading: 200},
+  {name: 'un-flag', url: 'models/flag-us.glb', ...offset(KESTREL_PAD, -12, 9), heading: 200},
   // The crew's fast buggy, parked a few metres from KESTREL; driven live, so re-placed every frame from its sim state.
   {name: 'buggy', url: 'models/buggy.glb', ...offset(KESTREL_PAD, 10, -5), heading: 90},
 ];

@@ -154,7 +154,9 @@ export class Buggy {
     const righting = this.flipped && lift > 0 && this.turbo > 0;
     const flightFiring = airControl && (controls.throttle > 0 || controls.brake > 0 || Math.abs(lift) > 0.01 || Math.abs(controls.steer) > 0.01);
     this.flightThrusting = flightFiring || righting;
-    const reserveRate = boosting || this.flightThrusting ? -BUGGY.turboDrain : !this.airborne && !this.flipped ? BUGGY.turboCharge : 0;
+    // Firing any thruster (ground boost or flight) burns the reserve; otherwise it recharges, in the air too, so
+    // gliding refills for the next burn. Only an out-of-control flip pauses the recharge.
+    const reserveRate = boosting || this.flightThrusting ? -BUGGY.turboDrain : this.flipped ? 0 : BUGGY.turboCharge;
     this.turbo = clamp(this.turbo + reserveRate * dt, 0, 1);
 
     let turn = 0;

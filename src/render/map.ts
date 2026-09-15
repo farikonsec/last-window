@@ -24,6 +24,8 @@ export class LunarMap {
   follow: {lat: number; lon: number} | null = null;
   /** Half-extent, metres, of the zoomed local view while following (5 km box shows the buggy actually moving). */
   followHalf = 2500;
+  /** Half-extent, metres, of the static local view (scroll to zoom). */
+  localHalf = LOCAL_HALF;
   onSelect: (marker: MapMarker) => void = () => {};
   private activeCentre: {lat: number; lon: number};
   private activeHalf = LOCAL_HALF;
@@ -50,6 +52,14 @@ export class LunarMap {
     this.title.onclick = () => this.cycle();
     this.canvas.addEventListener('mousemove', e => {this.hover = this.pick(e); this.canvas.style.cursor = this.hover ? 'pointer' : 'default';});
     this.canvas.addEventListener('click', e => {const m = this.pick(e); if (m) this.onSelect(m);});
+    // Scroll to zoom the local map in and out (both the driving follow view and the static view).
+    this.canvas.addEventListener('wheel', e => {
+      if (this.mode !== 'local') return;
+      e.preventDefault();
+      const factor = Math.exp(e.deltaY * 0.0015);
+      if (this.follow) this.followHalf = Math.max(300, Math.min(20_000, this.followHalf * factor));
+      else this.localHalf = Math.max(1_000, Math.min(20_000, this.localHalf * factor));
+    }, {passive: false});
   }
 
   cycle() {
@@ -104,8 +114,8 @@ export class LunarMap {
     // Follow (drive) mode: recenter the local map on the vehicle and zoom in so its movement actually shows.
     const following = this.mode === 'local' && this.follow !== null;
     this.activeCentre = following ? this.follow! : this.centre;
-    this.activeHalf = following ? this.followHalf : LOCAL_HALF;
-    this.title.textContent = this.mode !== 'local' ? 'MOON ⇄' : following ? `HADLEY · ${(this.followHalf * 2 / 1000).toFixed(1)} km ⇄` : 'HADLEY · 40 km ⇄';
+    this.activeHalf = following ? this.followHalf : this.localHalf;
+    this.title.textContent = this.mode !== 'local' ? 'MOON ⇄' : `HADLEY · ${(this.activeHalf * 2 / 1000).toFixed(1)} km ⇄ · scroll to zoom`;
     const g = this.canvas.getContext('2d')!;
     g.fillStyle = '#05070a';
     g.fillRect(0, 0, SIZE, SIZE);
