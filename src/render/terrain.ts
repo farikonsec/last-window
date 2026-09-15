@@ -88,14 +88,16 @@ export class TerrainRings {
 
   /** Re-anchor to a new terrain origin: rebuild the self-shadow field there, rebind it, and force every ring to rebuild
    * around the new anchor. Called when the camera has roamed far enough that the clipmap must follow it. */
-  reanchor() {
+  reanchor(withField = true) {
     this.anchor = anchorBodyFixed(this.terrain);
-    this.field.dispose();
-    this.field = this.buildShadowField();
+    // Rebuilding the 1536^2 self-shadow field is a ~second of work — fine as a one-off on travel, too heavy to do while
+    // roaming, so a light re-anchor skips it and disables the (now wrong) field self-shadow until the next full one.
+    if (withField) {this.field.dispose(); this.field = this.buildShadowField();}
     for (const L of this.levels) {
       L.built = false; L.enabled = false; L.mesh.visible = false;
       L.material.uniforms.field.value = this.field;
       L.material.uniforms.fieldRef.value = this.fieldHeight;
+      L.material.uniforms.fieldStrength.value = withField ? 1 : 0;
     }
   }
 
@@ -222,6 +224,7 @@ export class TerrainRings {
         earthDir: {value: new T.Vector3(0, 1, 0)},
         earthshine: {value: 0},
         sunLocal: {value: new T.Vector3(0, 0, 1)},
+        fieldStrength: {value: 1},
         eastWorld: {value: new T.Vector3(1, 0, 0)},
         holeMin: {value: new T.Vector2(1, 1)},
         holeMax: {value: new T.Vector2(-1, -1)},
@@ -256,7 +259,7 @@ export class TerrainRings {
         uniform float exposure; uniform sampler2D colourMap; uniform float albedoScale;
         uniform vec3 sunDir; uniform vec3 earthDir; uniform float earthshine; uniform vec3 sunLocal;
         uniform vec2 holeMin; uniform vec2 holeMax; uniform vec2 noiseOrigin; uniform vec2 ringCentre; uniform vec3 eastWorld;
-        uniform sampler2D field; uniform float fieldHalf; uniform float fieldRef; uniform float spacing; uniform int debugMode;
+        uniform sampler2D field; uniform float fieldHalf; uniform float fieldRef; uniform float spacing; uniform int debugMode; uniform float fieldStrength;
         varying vec2 vUv; varying vec2 vOffset; varying float vEjecta; varying float vHeight;
         varying vec3 vNormal; varying vec3 vWorld;
 
@@ -269,6 +272,7 @@ export class TerrainRings {
         // Coarse rings take their start height from the same field: their flat triangles sit below the bicubic field
         // on convex slopes, and marching from there found false shadows (the dotted rims seen from orbit).
         float fieldShadow(vec2 local, float h) {
+          if (fieldStrength <= 0.0) return 1.0; // self-shadow field disabled (e.g. roaming far from its anchor)
           if (sunLocal.z <= 0.0) return 0.0;
           float horizontal = length(sunLocal.xy);
           if (horizontal < 1e-4) return 1.0;

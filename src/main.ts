@@ -244,18 +244,18 @@ function makeRig(name: ViewName): LookRig {
         apply(sky.mciToEqj, bodyToInertial(scale(latLonToUnit(lat, lon), R_MOON + height), simTime));
       const target = () => at(buggy.lat, buggy.lon, terrain.height(buggy.lat, buggy.lon) + buggy.altitude + 1.5);
       const up = () => unit(at(buggy.lat, buggy.lon, 0));
-      const rig = lookRig(target, up, 0, -12, 60);
+      // az = orbit bearing offset from directly behind, el = camera height angle; drag the mouse to circle the buggy.
+      const rig = lookRig(target, up, 0, 20, 60);
       rig.position = () => {
-        // Pull back and lift a little as speed rises, for a sense of rush.
         const back = 9 + Math.min(24, Math.abs(buggy.speed) * 0.32);
-        const behind = buggy.offset(-back);
-        const lift = 3.4 + Math.min(3, Math.abs(buggy.speed) * 0.03);
-        // Airborne: frame it against its own smooth chassis height — sampling terrain under a fast, high buggy makes
-        // the height jump frame to frame and shakes the whole view. On the ground, keep clear of a rise behind it.
-        const height = buggy.airborne
-          ? buggy.chassisHeight(terrain) + lift
-          : Math.max(terrain.height(behind.lat, behind.lon), terrain.height(buggy.lat, buggy.lon)) + buggy.altitude + lift;
-        return at(behind.lat, behind.lon, height);
+        const bearing = buggy.heading + Math.PI + rig.az * Math.PI / 180;
+        const pitch = Math.max(4, Math.min(82, rig.el)) * Math.PI / 180;
+        const hp = buggy.offset(back * Math.cos(pitch), bearing);
+        // Airborne: frame against the smooth chassis height (no terrain sampling → no shake); grounded, clear a rise.
+        const base = buggy.airborne
+          ? buggy.chassisHeight(terrain)
+          : Math.max(terrain.height(hp.lat, hp.lon), terrain.height(buggy.lat, buggy.lon)) + buggy.altitude;
+        return at(hp.lat, hp.lon, base + back * Math.sin(pitch) + 1.2);
       };
       rig.look = () => ({forward: sub(target(), rig.position()), up: up()});
       return rig;
@@ -452,10 +452,13 @@ function driveEffects(dt: number) {
     const braking = held.has('s') && Math.abs(buggy.speed) > 1;
     tracks.drop(buggy.lat, buggy.lon, buggy.heading, braking ? 1 : Math.min(1, Math.abs(buggy.slip) / 5));
   }
-  if (!buggy.airborne && moving > 2 && fxClock - sprayAt > 0.09) {
+  // Rooster-tail dust that grows with speed: more grains, thrown harder and more often the faster the wheels spin.
+  const spd = Math.abs(buggy.speed);
+  const sprayGap = Math.max(0.03, 0.09 - spd * 0.0012);
+  if (!buggy.airborne && moving > 2 && fxClock - sprayAt > sprayGap) {
     sprayAt = fxClock;
     const spot = buggyGroundPoint(1.2);
-    effects.wheelSpray(spot, surfaceVelocity(spot), fxClock, groundAt);
+    effects.wheelSpray(spot, surfaceVelocity(spot), fxClock, groundAt, Math.min(1, spd / 40));
   }
   if (buggy.landingImpact > 0) {
     const here = buggyGroundPoint(0);
@@ -525,7 +528,7 @@ function updateDriveHud() {
   dhAltitude.textContent = buggy.altitude < 100 ? buggy.altitude.toFixed(1) : buggy.altitude.toFixed(0);
   dhVertical.textContent = `${buggy.vVert >= 0 ? '+' : ''}${buggy.vVert.toFixed(1)} m/s`;
   dhTurbo.style.width = `${Math.round(buggy.turbo * 100)}%`;
-  const state = buggy.flipped ? 'ROLLOVER' : buggy.flightThrusting || params.get('thrust') === '1' ? 'POWERED FLIGHT' : buggy.airborne ? 'AIRBORNE' : Math.abs(buggy.speed) < 0.2 ? 'PARKED' : buggy.speed < -0.1 ? 'REVERSE' : 'DRIVE';
+  const state = buggy.flipped ? 'ROLLOVER' : buggy.flightThrusting || params.get('thrust') === '1' ? 'FLIGHT' : buggy.airborne ? 'AIRBORNE' : Math.abs(buggy.speed) < 0.2 ? 'PARKED' : buggy.speed < -0.1 ? 'REVERSE' : 'DRIVE';
   dhState.textContent = state;
   dhState.classList.toggle('air', buggy.airborne || buggy.flipped);
   driveHud.classList.toggle('flight', buggy.airborne);
@@ -575,8 +578,8 @@ controls.setAttribute('aria-label', 'Surface navigation');
 controls.innerHTML = `<strong>LAST WINDOW <small>HADLEY EXPEDITION / 2031</small></strong>
   <div><select aria-label="Camera view" id="camera-view" title="Switch camera view: cockpit, chase, docking sight, ARGO orbit, rover chase and fixed scenic angles">${['pad','chase','cockpit','docking','argo','rover','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
   <button id="label-mode" title="Cycle on-screen labels: smart (declutters by range) → all → off [L]">Labels: smart [L]</button><button id="map-mode" title="Cycle the map: local hillshade → whole Moon → off [M]">Map: local [M]</button><button id="sound" title="Toggle music and sound effects [P]">Sound: off [P]</button><button id="autopilot" title="Fly the current mission automatically: fast-forwards to the launch window, then flies ascent, rendezvous and docking [Y]">Autopilot: off [Y]</button><button id="mode-ascent" title="Ascent mission: launch from the pad and fly up to a 100 km orbit to dock with ARGO">Ascent ↑</button><button id="mode-descent" title="Descent mission: start in orbit and fly a powered descent to a soft landing">Descent ↓</button><button id="drive" title="Take control of the surface buggy: W accelerate, S brake/reverse, A/D steer, Shift turbo; airborne it becomes a rocket flyer">Drive buggy</button>
-  <span class="warp-control" title="Time acceleration for coasting and waits: 1× real time up to 1000×. Keys [ and ] also work. Forced to 1× while flying an engine burn or driving."><button id="warp-dn" aria-label="Slower">−</button><b id="warp-val">1×</b><button id="warp-up" aria-label="Faster">+</button></span></div>
-  <div class="nav-row"><select aria-label="Inspect equipment" id="inspect-equipment" title="Jump the camera to a piece of hardware on the surface"><option value="">Inspect equipment…</option>${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</select>
+  <span class="warp-control" title="Time acceleration for coasting, waits and long buggy drives: 1× real time up to 1000× (capped at 60× while driving so terrain keeps up). Keys [ and ]."><em>Time</em><button id="warp-dn" aria-label="Slower">−</button><b id="warp-val">1×</b><button id="warp-up" aria-label="Faster">+</button></span></div>
+  <div class="nav-row"><select aria-label="Inspect" id="inspect-equipment" title="Inspect: jump to Hadley hardware, or travel to any world mission and stand beside it"><option value="">Inspect…</option><optgroup label="Hadley">${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</optgroup><optgroup label="World missions (travel there)">${PROBES.map(p => `<option value="probe:${p.id}">${p.name} · ${p.agency} ${p.year}</option>`).join('')}</optgroup></select>
   <select aria-label="Drive-to target" id="target" title="Pick a real lunar mission anywhere on the Moon as a navigation target: the map and an on-screen arrow point to it with the distance left"><option value="">Set target…</option>${PROBES.map(p => `<option value="${p.id}">${p.name} · ${p.agency} ${p.year}</option>`).join('')}</select></div>`;
 app.appendChild(controls);
 const cameraSelect = controls.querySelector<HTMLSelectElement>('#camera-view')!;
@@ -631,13 +634,47 @@ targetSelect.onchange = () => setTarget(PROBES.find(p => p.id === targetSelect.v
 // Flight manual: a button in the top bar and the ? key open the full science/controls reference.
 const manual = new Manual(app);
 controls.querySelector('div')!.appendChild(manual.button);
+
+// Brief centred message (arrivals, "Earth is below the horizon", etc.).
+const flashEl = document.createElement('div');
+flashEl.className = 'flash-msg';
+flashEl.hidden = true;
+app.appendChild(flashEl);
+let flashTimer = 0;
+function flashMessage(text: string) {flashEl.textContent = text; flashEl.hidden = false; clearTimeout(flashTimer); flashTimer = window.setTimeout(() => {flashEl.hidden = true;}, 2400);}
+
+/** Earth's azimuth (bearing from north) and elevation above the local horizon, degrees, at the buggy's position. */
+function earthLocal() {
+  const groundH = terrain.height(buggy.lat, buggy.lon);
+  const buggyEqj = apply(sky.mciToEqj, bodyToInertial(scale(latLonToUnit(buggy.lat, buggy.lon), R_MOON + groundH), simTime));
+  const earthEqj = bodiesAt(sky, simTime).earth;
+  const dir = unit(sub(earthEqj, buggyEqj)), up = unit(buggyEqj);
+  const polar = apply(moonFixedToEqj(sky, simTime), [0, 0, 1]);
+  const east = unit(cross(polar, up)), north = unit(cross(up, east));
+  const el = Math.asin(Math.max(-1, Math.min(1, dot(dir, up)))) * 180 / Math.PI;
+  const az = (Math.atan2(dot(dir, east), dot(dir, north)) * 180 / Math.PI + 360) % 360;
+  return {az, el};
+}
+const faceEarthBtn = document.createElement('button');
+faceEarthBtn.id = 'face-earth';
+faceEarthBtn.textContent = 'Earth ⨁';
+faceEarthBtn.title = 'Turn the view toward Earth. If Earth is above the horizon it appears in the sky (drag or scroll to look around); if it is below, you get a heads-up label.';
+faceEarthBtn.onclick = () => {
+  const {az, el} = earthLocal();
+  if (viewName !== 'rover') {viewName = 'rover'; rig = makeRig(viewName); cameraSelect.value = viewName;}
+  if (el < -1.5) {flashMessage(`Earth is below the horizon here (${el.toFixed(0)}° down, bearing ${az.toFixed(0)}°)`); return;}
+  rig.az = (((az - buggy.heading * 180 / Math.PI) + 540) % 360) - 180;
+  rig.el = Math.max(6, Math.min(30, 12 + el * 0.4));
+  flashMessage(`Facing Earth · ${el.toFixed(0)}° above the horizon`);
+};
+controls.querySelector('div')!.appendChild(faceEarthBtn);
 targetHud.querySelector<HTMLButtonElement>('.th-clear')!.onclick = () => setTarget(null);
 targetHud.querySelector<HTMLButtonElement>('.th-go')!.onclick = () => {if (target) travelTo(target);};
 
 /** Re-anchor the whole terrain/clipmap/hardware system to a new sub-point so the surface renders anywhere on the Moon. */
-function reanchorTo(lat: number, lon: number) {
+function reanchorTo(lat: number, lon: number, withField = true) {
   terrain.reanchor(lat, lon);
-  rings.reanchor();
+  rings.reanchor(withField);
   hardware.reanchor();
   rocks.reanchor();
   trackAnchor = scale(latLonToUnit(lat, lon), R_MOON);
@@ -704,8 +741,15 @@ lunarMap.onSelect = p => {
   cameraSelect.value = viewName;
 };
 controls.querySelector<HTMLSelectElement>('#inspect-equipment')!.onchange = e => {
-  const p = markers.find(m => m.id === (e.target as HTMLSelectElement).value);
-  if (p) lunarMap.onSelect(p);
+  const value = (e.target as HTMLSelectElement).value;
+  if (value.startsWith('probe:')) {
+    const probe = PROBES.find(p => p.id === value.slice(6));
+    if (probe) {setTarget(probe); travelTo(probe);}
+  } else {
+    const p = markers.find(m => m.id === value);
+    if (p) lunarMap.onSelect(p);
+  }
+  (e.target as HTMLSelectElement).value = '';
 };
 if (params.get('labels') === 'off' || params.get('hud') === '0') labels.mode = 'off';
 if (params.get('map') === 'off' || params.get('hud') === '0') lunarMap.mode = 'off';
@@ -1166,6 +1210,7 @@ function tick(realDt: number, now: number, render = true) {
     rig.az += ((held.has('arrowright') ? 1 : 0) - (held.has('arrowleft') ? 1 : 0)) * 60 * realDt;
     rig.el = Math.max(-89, Math.min(89, rig.el + ((held.has('arrowup') ? 1 : 0) - (held.has('arrowdown') ? 1 : 0)) * 60 * realDt));
   }
+  const driveWarp = Math.min(warp, 60); // driving time-warp cap: enough to cover ground, slow enough the clipmap keeps up
   if (driving) {
     // Ground: W/S motor/brake and A/D steer. In flight those become forward/retro rockets and bank+yaw; R/F climb
     // and descend, and Shift opens the high-flow forward valve. The flight HUD changes mode and explains the mapping.
@@ -1176,12 +1221,19 @@ function tick(realDt: number, now: number, render = true) {
       turbo: held.has('shift'),
       lift: (held.has('r') ? 1 : 0) - (held.has('f') ? 1 : 0),
     };
-    const step = Math.min(realDt, 0.05);
-    buggy.step(held.size ? drive : NO_DRIVE, step, terrain);
-    wheelSpin += (buggy.speed * step) / 0.52; // roll the wheels (tyre radius 0.52 m)
-    driveEffects(step);
+    // Time-warp works while driving too (capped, so the clipmap can keep up): run the physics in fixed sub-steps that
+    // cover warp*realDt of sim time, so you can cover real ground toward a distant target instead of crawling.
+    const total = Math.min(realDt, 0.05) * driveWarp;
+    const driveInput = held.size ? drive : NO_DRIVE;
+    const n = Math.max(1, Math.min(240, Math.ceil(total / 0.05)));
+    for (let i = 0; i < n; i++) buggy.step(driveInput, total / n, terrain);
+    wheelSpin += (buggy.speed * total) / 0.52; // roll the wheels (tyre radius 0.52 m)
+    driveEffects(Math.min(realDt, 0.05));
+    // Follow the buggy across the Moon: light re-anchor (no shadow-field rebuild) once it roams from the tangent origin.
+    const off = terrain.toLocal(buggy.lat, buggy.lon);
+    if (Math.hypot(off.x, off.y) > 150_000) reanchorTo(buggy.lat, buggy.lon, false);
   }
-  if (driving) warp = 1; // never warp world time while hand-driving the buggy — it would desync from real-time control
+  if (driving) warp = driveWarp; // driving shares the same warp, capped so the terrain clipmap keeps pace
   if (autopilotOn) warp = stepAutopilot();
   else if (mission.launched) {
     if (viewName !== 'argo' && held.has('arrowup')) mission.throttle = Math.min(1, mission.throttle + realDt * 0.35);

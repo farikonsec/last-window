@@ -57,6 +57,10 @@ button:focus-visible, select:focus-visible { outline: 2px solid #8fe8ed; outline
 .warp-control button { padding: 6px 9px; line-height: 1; }
 .warp-control b { min-width: 40px; text-align: center; font-weight: 700; color: #cae6ee; }
 .warp-control b.fast { color: #ffcd73; }
+.warp-control em { font-style: normal; color: #86a6b3; font-size: 10px; letter-spacing: 1px; }
+.flash-msg { position: fixed; left: 50%; top: 150px; transform: translateX(-50%); z-index: 30; padding: 8px 16px; border-radius: 10px;
+  background: #0a1016e8; border: 1px solid #ffd36b55; color: #f0e2c0; font: 12px ui-monospace, monospace; pointer-events: none; box-shadow: 0 0 14px #0008; }
+#face-earth { color: #8fd0ff; border-color: #8fd0ff55; }
 .nav-row { display: flex; gap: 7px; }.nav-row select { flex: 1; min-width: 0; }
 /* Drive-to target: a heading arrow, the mission name and the distance left, top-centre. */
 .target-hud { position: fixed; top: calc(112px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 7;
@@ -77,7 +81,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid #8fe8ed; outline
 .manual header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #6fb6c433; }
 .manual header h2 { margin: 0; font-size: 15px; letter-spacing: 2px; color: #9fe8f0; }
 .manual header button { padding: 5px 10px; }
-.manual-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 22px 22px; }
+.manual-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 22px 22px; }
 .manual-body section { padding: 14px 0; border-bottom: 1px solid #ffffff0f; }
 .manual-body h3 { margin: 0 0 6px; font-size: 14px; letter-spacing: 1px; color: #91efc3; }
 .manual-body p { margin: 6px 0; color: #c3d6dd; }
@@ -194,10 +198,11 @@ body.compact .mini-hud { display: flex; align-items: center; gap: 8px; position:
 .drive-hud.flight { padding: 12px 18px; border-color: #35e0ff88; background: linear-gradient(115deg, #07131bef, #102332e8);
   box-shadow: 0 0 26px #35e0ff33, inset 0 0 24px #35e0ff0d; }
 .drive-hud.rollover { border-color: #ff9b6688; box-shadow: 0 0 22px #ff6b3540; }
-.drive-hud .dh-state { font-weight: 800; letter-spacing: .12em; color: #8fd6ff; min-width: 74px; text-align: center; }
+.drive-hud .dh-state { font-weight: 800; letter-spacing: .1em; color: #8fd6ff; width: 96px; flex: none; text-align: center; white-space: nowrap; }
 .drive-hud .dh-state.air { color: #ffd06b; }
 .drive-hud.flight .dh-state { color: #74ecff; text-shadow: 0 0 12px #35e0ffaa; }
-.drive-hud .dh-gauge { display: flex; flex-direction: column; min-width: 62px; }
+.drive-hud .dh-gauge { display: flex; flex-direction: column; width: 78px; flex: none; }
+.drive-hud .dh-gauge b { font-variant-numeric: tabular-nums; }
 .drive-hud .dh-gauge small { color: #718d9b; font-size: 8px; letter-spacing: .12em; }
 .drive-hud .dh-gauge div { display: flex; align-items: baseline; gap: 4px; }
 .drive-hud .dh-gauge b { font-size: 26px; line-height: 1; font-weight: 800; color: #eaf4fb; }

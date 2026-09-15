@@ -154,9 +154,10 @@ export class Effects {
     this.add('dust', r, v, t, life, ground);
   }
 
-  /** A small, short-lived rooster-tail of regolith thrown up by a wheel dragging over the surface. */
-  wheelSpray(centre: V3, velocity: V3, t: number, ground: (r: V3) => number) {
-    this.dust(centre, velocity, t, 26, [1, 9], ground, 1.5);
+  /** A rooster-tail of regolith from a wheel dragging over the surface; `strength` 0..1 scales grains and throw speed. */
+  wheelSpray(centre: V3, velocity: V3, t: number, ground: (r: V3) => number, strength = 0) {
+    const count = Math.round(26 + 90 * strength);
+    this.dust(centre, velocity, t, count, [1, 9 + 34 * strength], ground, 1.5 + strength);
   }
 
   /**
