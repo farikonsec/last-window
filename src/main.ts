@@ -6,8 +6,9 @@ import {MissionHud, rcsKeys} from './render/mission-hud';
 import {GameAudio, type Warning} from './render/audio';
 import {Effects, makePlume, makeRcsPuff} from './render/effects';
 import {setupTouch} from './render/touch';
+import {NO_DRIVE, Rover, type RoverControls} from './sim/rover';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
-import {circularState, inertialToBody, surfaceVelocity} from './sim/orbit';
+import {bodyToInertial, circularState, inertialToBody, surfaceVelocity} from './sim/orbit';
 import {LabelLayer, type LabelItem} from './render/labels';
 import {LunarMap} from './render/map';
 import {PLACES, hadleyLandforms} from './sim/atlas';
@@ -143,7 +144,7 @@ if (ev) viewer.exposureSettings.mode = Number(ev);
 // ---------------------------------------------------------------------------------------------------------------
 // Views. Positions are Moon-centred EQJ metres (float64); the camera is re-based to the origin every frame.
 
-type ViewName = 'orbit' | 'site' | 'globe' | 'nightside' | 'limb' | 'hover' | 'cross' | 'rille' | 'low' | 'nadir' | 'pad' | 'apollo' | 'lander-up' | 'chase' | 'cockpit' | 'docking' | 'argo';
+type ViewName = 'rover' | 'orbit' | 'site' | 'globe' | 'nightside' | 'limb' | 'hover' | 'cross' | 'rille' | 'low' | 'nadir' | 'pad' | 'apollo' | 'lander-up' | 'chase' | 'cockpit' | 'docking' | 'argo';
 interface Rig {
   /** Camera position, EQJ metres from the Moon's centre. */
   position(): V3;
@@ -232,6 +233,23 @@ function makeRig(name: ViewName): LookRig {
         position: () => add(apply(sky.mciToEqj, mission.state.r), body([0, 3.32, 2.2])),
         look: () => ({forward: body([0, 0, 1]), up: body([0, 1, 0])})};
     }
+    case 'rover': {
+      // Chase the rover from behind and above, turning with it. Body-fixed lat/lon has to be rotated into the inertial
+      // frame for the current time first, or the camera slides off the rover as the Moon turns under it.
+      const at = (lat: number, lon: number, height: number) =>
+        apply(sky.mciToEqj, bodyToInertial(scale(latLonToUnit(lat, lon), R_MOON + height), simTime));
+      const ground = () => at(rover.lat, rover.lon, terrain.height(rover.lat, rover.lon) + 1.6);
+      const up = () => unit(ground());
+      const rig = lookRig(ground, up, 0, -12, 60);
+      rig.position = () => {
+        // Sit behind and above, never below the ground under the rover, so a rise between them cannot hide it.
+        const behind = rover.offset(-12);
+        const floor = Math.max(terrain.height(behind.lat, behind.lon), terrain.height(rover.lat, rover.lon));
+        return at(behind.lat, behind.lon, floor + 4.6);
+      };
+      rig.look = () => ({forward: sub(ground(), rig.position()), up: up()});
+      return rig;
+    }
     case 'argo': {
       // Free orbit around ARGO: drag to circle it, wheel to zoom, so you can inspect the mothership from any angle.
       const craft = () => apply(sky.mciToEqj, mission.argo.r);
@@ -286,10 +304,15 @@ function makeRig(name: ViewName): LookRig {
   }
 }
 
+// Lunar rover: starts parked where Apollo 15 left the LRV, and drives on the same terrain function.
+const lrvPlacement = HADLEY_HARDWARE.find(p => p.name === 'apollo15-lrv')!;
+const rover = new Rover(lrvPlacement.lat, lrvPlacement.lon, lrvPlacement.heading);
+let driving = params.get('scenario') === 'rover';
 let chaseDistance = 30;
 let argoCamDistance = 120;
 let viewName = (params.get('view') as ViewName) ?? 'pad';
 if (params.get('scenario') === 'ascent' || params.get('scenario') === 'descent') viewName = 'chase';
+if (params.get('scenario') === 'rover') viewName = 'rover';
 if (params.get('scenario') === 'terminal' || params.get('scenario') === 'docking') viewName = 'docking';
 if (params.get('scenario') === 'crash' || params.get('scenario') === 'collision') viewName = 'chase';
 let rig = makeRig(viewName);
@@ -341,8 +364,8 @@ const controls = document.createElement('nav');
 controls.className = 'nav-controls';
 controls.setAttribute('aria-label', 'Surface navigation');
 controls.innerHTML = `<strong>LAST WINDOW <small>HADLEY EXPEDITION / 2031</small></strong>
-  <div><select aria-label="Camera view" id="camera-view">${['pad','chase','cockpit','docking','argo','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
-  <button id="label-mode">Labels: smart [L]</button><button id="map-mode">Map: local [M]</button><button id="sound">Sound: off [P]</button><button id="autopilot">Autopilot: off [Y]</button><button id="mission-mode">Mission: ascent</button></div>
+  <div><select aria-label="Camera view" id="camera-view">${['pad','chase','cockpit','docking','argo','rover','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
+  <button id="label-mode">Labels: smart [L]</button><button id="map-mode">Map: local [M]</button><button id="sound">Sound: off [P]</button><button id="autopilot">Autopilot: off [Y]</button><button id="mission-mode">Mission: ascent</button><button id="drive">Drive rover</button></div>
   <select aria-label="Inspect equipment" id="inspect-equipment"><option value="">Inspect equipment…</option>${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</select>`;
 app.appendChild(controls);
 const cameraSelect = controls.querySelector<HTMLSelectElement>('#camera-view')!;
@@ -358,6 +381,15 @@ autopilotBtn.onclick = () => toggleAutopilot();
 const modeBtn = controls.querySelector<HTMLButtonElement>('#mission-mode')!;
 modeBtn.textContent = `Mission: ${mission.mode === 'descent' ? 'descent' : 'ascent'}`;
 modeBtn.onclick = () => {location.href = location.pathname + (mission.mode === 'descent' ? '?view=pad&scenario=window-open' : '?scenario=descent');};
+const driveBtn = controls.querySelector<HTMLButtonElement>('#drive')!;
+function setDriving(on: boolean) {
+  driving = on;
+  driveBtn.classList.toggle('view-active', on);
+  driveBtn.textContent = on ? 'Driving rover' : 'Drive rover';
+  if (on) {viewName = 'rover'; rig = makeRig(viewName); cameraSelect.value = viewName;}
+}
+driveBtn.onclick = () => setDriving(!driving);
+if (driving) setDriving(true);
 cameraSelect.onchange = () => {viewName = cameraSelect.value as ViewName; rig = makeRig(viewName);};
 const changeLabels = () => {labels.mode = labels.mode === 'smart' ? 'all' : labels.mode === 'all' ? 'off' : 'smart';};
 controls.querySelector<HTMLButtonElement>('#label-mode')!.onclick = changeLabels;
@@ -585,6 +617,12 @@ function place(realDt: number) {
     hardwareLight.lampPos.value.copy(toThree(sub(add(apply(sky.mciToEqj, mission.state.r), apply(sky.mciToEqj, rotate(mission.state.q, [0, 3.32, 2.6]))), cameraEqj)));
     hardwareLight.lampDir.value.copy(toThree(apply(sky.mciToEqj, rotate(mission.state.q, [0, 0, 1]))));
   }
+  // Drive the parked LRV model to wherever the rover has got to.
+  const lrv = hardware.objects.get('apollo15-lrv');
+  if (lrv) {
+    lrv.matrix.copy(hardware.placementMatrix({...lrvPlacement, lat: rover.lat, lon: rover.lon, heading: rover.heading * 180 / Math.PI}));
+    lrv.updateMatrixWorld(true);
+  }
   if (fixturePost) {fixturePost.matrix.copy(ringMatrix); fixturePost.updateMatrixWorld(true);}
   moon.setCoverage(rings.coverage);
   const nearGround = rings.altitude < 2500;
@@ -757,6 +795,15 @@ function stepAutopilot(): number {
 
 /** One game frame: input, fixed-step physics, effects, audio, HUD, render. Tests drive it directly. */
 function tick(realDt: number, now: number, render = true) {
+  if (driving) {
+    // Rover controls: W/S drive and brake, A/D steer. The lander's own keys are idle while you are on the ground.
+    const drive: RoverControls = {
+      throttle: held.has('w') ? 1 : 0,
+      brake: held.has('s') ? 1 : 0,
+      steer: (held.has('d') ? 1 : 0) - (held.has('a') ? 1 : 0),
+    };
+    rover.step(held.size ? drive : NO_DRIVE, Math.min(realDt, 0.1), terrain);
+  }
   if (autopilotOn) warp = stepAutopilot();
   else if (mission.launched) {
     if (held.has('arrowup')) mission.throttle = Math.min(1, mission.throttle + realDt * 0.35);
@@ -838,7 +885,7 @@ Object.assign(window, {
   moonAscent: {
     ready: () => viewer.shaderErrors.length === 0,
     texturesLoaded: () => texturesLoaded,
-    debug: {mission, audio, effects, argoFrame, ascentFrame, labels, lunarMap, markers, shadows, rings, rocks, viewer, hardware, terrain, fixture: fixturePost},
+    debug: {mission, rover, audio, effects, argoFrame, ascentFrame, labels, lunarMap, markers, shadows, rings, rocks, viewer, hardware, terrain, fixture: fixturePost},
     /** Render one frame and return the canvas as a PNG data URL (read within the same task, so no preserveDrawingBuffer). */
     capture: () => {place(1 / 30); return viewer.renderer.domElement.toDataURL('image/png');},
     errors: () => viewer.shaderErrors,
