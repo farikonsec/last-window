@@ -585,11 +585,11 @@ const controls = document.createElement('nav');
 controls.className = 'nav-controls';
 controls.setAttribute('aria-label', 'Surface navigation');
 controls.innerHTML = `<strong>LAST WINDOW <small>HADLEY EXPEDITION / 2031</small></strong>
-  <div><select aria-label="Camera view" id="camera-view" title="Switch camera view: cockpit, chase, docking sight, ARGO orbit, rover chase and fixed scenic angles">${['pad','chase','cockpit','docking','argo','rover','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select>
-  <button id="label-mode" title="Cycle on-screen labels: smart (declutters by range) → all → off [L]">Labels: smart [L]</button><button id="map-mode" title="Cycle the map: local hillshade → whole Moon → off [M]">Map: local [M]</button><button id="sound" title="Toggle music and sound effects [P]">Sound: off [P]</button><button id="autopilot" title="Fly the current mission automatically: fast-forwards to the launch window, then flies ascent, rendezvous and docking [Y]">Autopilot: off [Y]</button><button id="mode-ascent" title="Ascent mission: launch from the pad and fly up to a 100 km orbit to dock with ARGO">Ascent ↑</button><button id="mode-descent" title="Descent mission: start in orbit and fly a powered descent to a soft landing">Descent ↓</button><button id="drive" title="Take control of the surface buggy: W accelerate, S brake/reverse, A/D steer, Shift turbo; airborne it becomes a rocket flyer">Drive buggy</button>
-  <span class="warp-control" title="Time acceleration for coasting, waits and long buggy drives: 1× real time up to 1000× (capped at 60× while driving so terrain keeps up). Keys [ and ]."><em>Time</em><button id="warp-dn" aria-label="Slower">−</button><b id="warp-val">1×</b><button id="warp-up" aria-label="Faster">+</button></span></div>
-  <div class="nav-row"><select aria-label="Inspect" id="inspect-equipment" title="Inspect: jump to Hadley hardware, or travel to any world mission and stand beside it"><option value="">Inspect…</option><optgroup label="Hadley">${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</optgroup><optgroup label="World missions (travel there)">${PROBES.map(p => `<option value="probe:${p.id}">${p.name} · ${p.agency} ${p.year}</option>`).join('')}</optgroup></select>
-  <select aria-label="Drive-to target" id="target" title="Pick a real lunar mission anywhere on the Moon as a navigation target: the map and an on-screen arrow point to it with the distance left"><option value="">Set target…</option>${PROBES.map(p => `<option value="${p.id}">${p.name} · ${p.agency} ${p.year}</option>`).join('')}</select></div>`;
+  <div class="nav-main">
+  <div class="nav-group grp-view"><span class="grp-label">View</span><select aria-label="Camera view" id="camera-view" title="Switch camera view: cockpit, chase, docking sight, ARGO orbit, rover chase and fixed scenic angles">${['pad','chase','cockpit','docking','argo','rover','apollo','site','rille','lander-up','hover','orbit','globe'].map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select><button id="label-mode" title="Cycle on-screen labels: smart (declutters by range) → all → off [L]">Labels: smart [L]</button><button id="map-mode" title="Cycle the map: local hillshade → whole Moon → off [M]">Map: local [M]</button><button id="sound" title="Toggle music and sound effects [P]">Sound: off [P]</button><span class="warp-control" title="Time acceleration for coasting, waits and long buggy drives: 1× real time up to 1000× (capped at 60× while driving so terrain keeps up). Keys [ and ]."><em>Time</em><button id="warp-dn" aria-label="Slower">−</button><b id="warp-val">1×</b><button id="warp-up" aria-label="Faster">+</button></span></div>
+  <div class="nav-group grp-mission"><span class="grp-label">Mission</span><button id="autopilot" title="Fly the current mission automatically: fast-forwards to the launch window, then flies ascent, rendezvous and docking [Y]">Autopilot: off [Y]</button><button id="mode-ascent" title="Ascent mission: launch from the pad and fly up to a 100 km orbit to dock with ARGO">Ascent ↑</button><button id="mode-descent" title="Descent mission: start in orbit and fly a powered descent to a soft landing">Descent ↓</button></div>
+  <div class="nav-group grp-buggy"><span class="grp-label">Buggy</span><button id="drive" title="Take control of the surface buggy: W accelerate, S brake/reverse, A/D steer, Shift turbo; airborne it becomes a rocket flyer">Drive buggy</button><div class="buggy-tools"><select aria-label="Inspect" id="inspect-equipment" title="Inspect (camera only): look at Hadley hardware or any world mission from a bird's-eye — the buggy stays put"><option value="">Inspect…</option><optgroup label="Hadley">${HADLEY_HARDWARE.map(p => `<option value="${p.name}">${equipment[p.name][0]}</option>`).join('')}</optgroup><optgroup label="World missions (camera only)">${PROBES.map(p => `<option value="probe:${p.id}">${p.name} · ${p.agency} ${p.year}</option>`).join('')}</optgroup></select><select aria-label="Drive-to target" id="target" title="Pick a real lunar mission anywhere on the Moon as a navigation target: the map and an on-screen arrow point to it with the distance left; AUTO/GO drive the buggy there"><option value="">Set target…</option>${PROBES.map(p => `<option value="${p.id}">${p.name} · ${p.agency} ${p.year}</option>`).join('')}</select></div></div>
+  </div>`;
 app.appendChild(controls);
 const cameraSelect = controls.querySelector<HTMLSelectElement>('#camera-view')!;
 cameraSelect.value = viewName;
@@ -615,6 +615,9 @@ function setDriving(on: boolean) {
   driving = on;
   driveBtn.classList.toggle('view-active', on);
   driveBtn.textContent = on ? 'Driving buggy' : 'Drive buggy';
+  // The top bar becomes the buggy menu while driving: its tools (target, inspect, Earth) expand and the mission group
+  // (autopilot, ascent/descent, ARGO near) steps aside, so launcher and buggy controls are no longer mixed.
+  controls.classList.toggle('mode-buggy', on);
   // The lander flight computer is irrelevant while driving; hide it so the surface and drive HUD are clear.
   if (params.get('hud') !== '0') flightHud.panel.hidden = on;
   if (on) {resumeFromInspect(); viewName = 'rover'; rig = makeRig(viewName); cameraSelect.value = viewName;}
@@ -646,7 +649,7 @@ function setTarget(p: Probe | null) {
 targetSelect.onchange = () => setTarget(PROBES.find(p => p.id === targetSelect.value) ?? null);
 // Flight manual: a button in the top bar and the ? key open the full science/controls reference.
 const manual = new Manual(app);
-controls.querySelector('div')!.appendChild(manual.button);
+controls.querySelector('.grp-view')!.appendChild(manual.button);
 
 // Brief centred message (arrivals, "Earth is below the horizon", etc.).
 const flashEl = document.createElement('div');
@@ -681,7 +684,7 @@ faceEarthBtn.onclick = () => {
   rig.el = Math.max(6, Math.min(30, 12 + el * 0.4));
   flashMessage(`Facing Earth · ${el.toFixed(0)}° above the horizon`);
 };
-controls.querySelector('div')!.appendChild(faceEarthBtn);
+controls.querySelector('.buggy-tools')!.appendChild(faceEarthBtn);
 
 // Bring ARGO near: fast-forward the mothership along its own orbit so the next launch window is seconds away instead
 // of most of an orbit, turning a long wait into a short one without changing what the flight itself demands.
@@ -695,7 +698,7 @@ argoNearBtn.onclick = () => {
   mission.bringArgoNear();
   flashMessage(`ARGO re-phased · window in ${Math.max(0, mission.countdown).toFixed(0)} s (was ${Math.max(0, before / 60).toFixed(0)} min)`);
 };
-controls.querySelector('div')!.appendChild(argoNearBtn);
+controls.querySelector('.grp-mission')!.appendChild(argoNearBtn);
 targetHud.querySelector<HTMLButtonElement>('.th-clear')!.onclick = () => {setTarget(null); setAutodrive(false);};
 targetHud.querySelector<HTMLButtonElement>('.th-go')!.onclick = () => {if (target) travelTo(target);};
 const autoBtn = targetHud.querySelector<HTMLButtonElement>('.th-auto')!;

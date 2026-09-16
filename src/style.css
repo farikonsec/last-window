@@ -16,6 +16,17 @@ canvas { display: block; touch-action: none; }
   font: 11px ui-monospace, Menlo, monospace; }
 .nav-controls strong { letter-spacing: 2px; font-size: 13px; }
 .nav-controls small { display: inline; margin-left: 14px; color: #86a6b3; font-size: 9px; letter-spacing: 1px; }
+/* Grouped top bar: View | Mission | Buggy. The buggy group holds the Drive button plus its tools; the tools reveal and
+   the mission group steps aside while driving, so launcher and buggy controls stop sharing one undifferentiated row. */
+.nav-main { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.nav-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px;
+  border: 1px solid #6a9da12e; border-radius: 6px; }
+.grp-label { color: #7fa7b3; font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; align-self: center; }
+.grp-buggy { border-color: #4fae5f4a; }
+.buggy-tools { display: none; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mode-buggy .grp-buggy { border-color: #4fae5faa; background: #0e1c14a6; }
+.mode-buggy .grp-buggy .buggy-tools { display: flex; }
+.mode-buggy .grp-mission { display: none; }
 button, select { font: inherit; color: #cae6ee; background: #13212a; border: 1px solid #6a9da14a; border-radius: 4px; padding: 6px 8px; cursor: pointer; }
 button:hover, select:hover { border-color: #8fe8ed; }
 button:focus-visible, select:focus-visible { outline: 2px solid #8fe8ed; outline-offset: 2px; }
@@ -171,6 +182,12 @@ body.compact .sheet { display: flex; flex-direction: column; position: fixed; le
 body.compact .sheet-body .nav-controls, body.compact .sheet-body .mission-panel {
   display: block; position: static; inset: auto; width: auto; max-height: none; z-index: auto; margin: 0; padding: 12px; font-size: 13px; }
 body.compact .sheet-body .nav-controls > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Phone menu: the groups stack full width, each laying its controls out two-up; the Buggy group's tools flow into that
+   same grid while driving so the phone gets the same dedicated buggy menu the desktop bar shows. */
+body.compact .sheet-body .nav-controls .nav-main { display: flex; flex-direction: column; gap: 12px; }
+body.compact .sheet-body .nav-controls .nav-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }
+body.compact .sheet-body .grp-label { grid-column: 1 / -1; font-size: 10px; }
+body.compact .sheet-body .mode-buggy .grp-buggy .buggy-tools { display: contents; }
 body.compact .sheet-body button, body.compact .sheet-body select {
   min-height: 46px; width: 100%; box-sizing: border-box; font-size: 13px; border-radius: 11px; }
 body.compact .sheet-body .flight-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
