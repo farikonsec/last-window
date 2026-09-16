@@ -1,7 +1,7 @@
 # LAST WINDOW · Moon ascent
 
 <p align="center">
-  <a href="https://farikonsec.github.io/last-window/"><img src="docs/media/hero.gif" alt="The crew buggy driving across sunlit lunar regolith at Hadley" width="100%"></a>
+  <a href="https://farikonsec.github.io/last-window/"><img src="docs/media/dock-out.gif" alt="The lander closing on the mothership above the sunlit Moon, seen from outside" width="46%"></a>
 </p>
 
 <p align="center"><b><a href="https://farikonsec.github.io/last-window/">▶ Play in your browser</a></b> · desktop, iPhone and Android · no install</p>
@@ -14,7 +14,7 @@ It runs entirely in the browser (WebGL, no backend). A desktop browser with a GP
 
 <p align="center">
   <img src="docs/media/dock.gif" alt="The docking sight closing on ARGO's port during the final approach" width="46%">
-  <img src="docs/media/dock-out.gif" alt="The lander closing on the mothership above the sunlit Moon, seen from outside" width="46%">
+  
 </p>
 <p align="center"><sub>Left: the docking sight on final approach. Right: the same approach from outside, KESTREL closing on ARGO above the sunlit Moon.</sub></p>
 
