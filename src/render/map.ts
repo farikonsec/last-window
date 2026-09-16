@@ -35,6 +35,7 @@ export class LunarMap {
   private canvas = document.createElement('canvas');
   private foot = document.createElement('div');
   private title = document.createElement('button');
+  private zoomBox = document.createElement('div');
   private hillshade: HTMLCanvasElement;
   private moonImage = new Image();
   private centre: {lat: number; lon: number};
@@ -45,7 +46,14 @@ export class LunarMap {
     this.title.className = 'map-title';
     this.canvas.width = this.canvas.height = SIZE;
     this.foot.className = 'map-foot';
-    this.panel.append(this.title, this.canvas, this.foot);
+    // Zoom buttons (touch-friendly), overlaid on the map: they scale the active local view the same way the wheel does.
+    this.zoomBox.className = 'map-zoom';
+    const plus = document.createElement('button'), minus = document.createElement('button');
+    plus.textContent = '+'; minus.textContent = '−';
+    plus.title = 'Zoom the map in'; minus.title = 'Zoom the map out';
+    plus.onclick = () => this.zoom(1 / 1.4); minus.onclick = () => this.zoom(1.4);
+    this.zoomBox.append(plus, minus);
+    this.panel.append(this.title, this.canvas, this.zoomBox, this.foot);
     parent.appendChild(this.panel);
     this.moonImage.src = moonUrl;
     this.centre = {lat: terrain.anchorLat, lon: terrain.anchorLon};
@@ -66,6 +74,20 @@ export class LunarMap {
 
   cycle() {
     this.mode = this.mode === 'local' ? 'moon' : this.mode === 'moon' ? 'off' : 'local';
+  }
+
+  /** Scale the active local view (wheel and the +/- buttons share this). */
+  zoom(factor: number) {
+    if (this.mode !== 'local') return;
+    if (this.follow) this.followHalf = Math.max(300, Math.min(20_000, this.followHalf * factor));
+    else this.localHalf = Math.max(1_000, Math.min(20_000, this.localHalf * factor));
+  }
+
+  /** Rebuild the hillshade around a new centre. Called when the followed vehicle drives past the prebuilt box (so the
+   * local map stops going dark far from the start) and on travel/re-anchor (the old anchor's local coords are stale). */
+  recenter(lat: number, lon: number) {
+    this.centre = {lat, lon};
+    this.hillshade = this.buildHillshade();
   }
 
   /** Terrain-local hillshade (sun from the east, like the scenario morning) over the 40 km box. */
@@ -115,6 +137,12 @@ export class LunarMap {
     if (this.mode === 'off') return;
     // Follow (drive) mode: recenter the local map on the vehicle and zoom in so its movement actually shows.
     const following = this.mode === 'local' && this.follow !== null;
+    // Keep the prebuilt 40 km hillshade under the followed vehicle: once it drifts past ~10 km of the built centre the
+    // crop would run off the edge and the map would go dark, so rebuild around it (a one-off, not per frame).
+    if (following) {
+      const o = this.terrain.toLocal(this.centre.lat, this.centre.lon), f = this.terrain.toLocal(this.follow!.lat, this.follow!.lon);
+      if (Math.hypot(f.x - o.x, f.y - o.y) > 10_000) this.recenter(this.follow!.lat, this.follow!.lon);
+    }
     this.activeCentre = following ? this.follow! : this.centre;
     this.activeHalf = following ? this.followHalf : this.localHalf;
     this.title.textContent = this.mode !== 'local' ? 'MOON ⇄' : `HADLEY · ${(this.activeHalf * 2 / 1000).toFixed(1)} km ⇄ · scroll to zoom`;

@@ -111,6 +111,10 @@ export function hardwareMaterial(source: T.MeshStandardMaterial, shadows: SunSha
         radiance += albedo * 0.02;
         gl_FragColor = vec4(radiance * exposure, 1.0);
       }`,
+    // Render both faces: several models are open shells (no modelled floor/underside), and single-sided culling let the
+    // camera see straight through them to black when it dropped low or onto a site. The shader already lights back-faces
+    // (it flips the normal toward the viewer), so drawing them closes the "transparent black underside".
+    side: T.DoubleSide,
   });
 }
 

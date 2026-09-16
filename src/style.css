@@ -28,7 +28,11 @@ button:focus-visible, select:focus-visible { outline: 2px solid #8fe8ed; outline
 .map-panel { position: fixed; right: 16px; bottom: 16px; width: 280px; z-index: 4; overflow: hidden;
   color: #bcd1d8; border: 1px solid #73959e66; border-radius: 8px; background: #081016eb; font: 10px ui-monospace, Menlo, monospace; }
 .map-title { display: block; width: 100%; text-align: left; padding: 10px; border: 0; border-radius: 0; letter-spacing: 2px; }
-.map-panel canvas { width: 100%; }.map-foot { padding: 9px; min-height: 24px; line-height: 1.4; }
+.map-panel canvas { width: 100%; display: block; }.map-foot { padding: 9px; min-height: 24px; line-height: 1.4; }
+.map-zoom { position: absolute; right: 6px; bottom: 38px; display: flex; flex-direction: column; gap: 4px; z-index: 5; }
+.map-zoom button { width: 26px; height: 26px; padding: 0; font-size: 16px; line-height: 1; border-radius: 5px;
+  border: 1px solid #73959e88; background: #0b1620cc; color: #dbe8ec; cursor: pointer; }
+.map-zoom button:hover { background: #16303dcc; border-color: #78d9ea; }
 @media (max-width: 700px) {
   .nav-controls { top: 8px; left: 8px; right: 8px; padding: 8px; }
   .nav-controls small { display: none; }.nav-controls button, .nav-controls select { padding: 6px; font-size: 10px; }

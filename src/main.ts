@@ -325,6 +325,10 @@ let wheelSpin = 0, sprayAt = 0, rockImpactAt = -Infinity;
 const driveTrail: {lat: number; lon: number}[] = []; // breadcrumb of where the buggy has driven, for the zoomed map
 let geoLatLon = {lat: 26.13, lon: 3.63}; // the camera's current sub-point, updated each frame for target bearings
 let driving = params.get('scenario') === 'rover' || params.get('scenario') === 'drive';
+// Inspecting a world mission re-anchors the terrain to that site for a camera-only bird's-eye; the buggy stays put, and
+// resuming the drive re-anchors back to it. Set target + GO is the path that actually drives the buggy across the Moon.
+let inspecting = false;
+let buggyHomeAnchor: {lat: number; lon: number} | null = null;
 let chaseDistance = 30;
 let argoCamDistance = 80;
 let viewName = (params.get('view') as ViewName) ?? 'pad';
@@ -613,10 +617,13 @@ function setDriving(on: boolean) {
   driveBtn.textContent = on ? 'Driving buggy' : 'Drive buggy';
   // The lander flight computer is irrelevant while driving; hide it so the surface and drive HUD are clear.
   if (params.get('hud') !== '0') flightHud.panel.hidden = on;
-  if (on) {viewName = 'rover'; rig = makeRig(viewName); cameraSelect.value = viewName;}
+  if (on) {resumeFromInspect(); viewName = 'rover'; rig = makeRig(viewName); cameraSelect.value = viewName;}
 }
 driveBtn.onclick = () => setDriving(!driving);
-cameraSelect.onchange = () => {viewName = cameraSelect.value as ViewName; rig = makeRig(viewName);};
+cameraSelect.onchange = () => {
+  if (cameraSelect.value === 'rover') resumeFromInspect(); // returning to the buggy view re-anchors the terrain to it
+  viewName = cameraSelect.value as ViewName; rig = makeRig(viewName);
+};
 
 // Drive-to target: pick any real mission on the Moon; the map and an on-screen arrow point to it with distance left.
 let target: Probe | null = null;
@@ -667,6 +674,7 @@ faceEarthBtn.textContent = 'Earth ⨁';
 faceEarthBtn.title = 'Turn the view toward Earth. If Earth is above the horizon it appears in the sky (drag or scroll to look around); if it is below, you get a heads-up label.';
 faceEarthBtn.onclick = () => {
   const {az, el} = earthLocal();
+  resumeFromInspect();
   if (viewName !== 'rover') {viewName = 'rover'; rig = makeRig(viewName); cameraSelect.value = viewName;}
   if (el < -1.5) {flashMessage(`Earth is below the horizon here (${el.toFixed(0)}° down, bearing ${az.toFixed(0)}°)`); return;}
   rig.az = (((az - buggy.heading * 180 / Math.PI) + 540) % 360) - 180;
@@ -704,6 +712,7 @@ function reanchorTo(lat: number, lon: number, withField = true) {
   rings.reanchor(withField);
   hardware.reanchor();
   rocks.reanchor();
+  lunarMap.recenter(lat, lon); // the map's hillshade is built in the anchor's tangent frame — rebuild it at the new one
   trackAnchor = scale(latLonToUnit(lat, lon), R_MOON);
   tracks.clear();
   driveTrail.length = 0;
@@ -734,11 +743,8 @@ function sunUpTime(lat: number, lon: number, from: number) {
   return best;
 }
 
-function travelTo(p: Probe) {
-  // Jump to a local morning so the site is sunlit rather than in lunar night.
-  const t = sunUpTime(p.lat, p.lon, simTime);
-  mission.state.t = t; simTime = t;
-  reanchorTo(p.lat, p.lon);
+/** Stand a site's stand-in model on the freshly re-anchored terrain and hide the others. Shared by travel and inspect. */
+function showSiteModel(p: Probe) {
   const pick = `site-${siteModel(p.id)}`;
   for (const {name} of SITE_MODELS) {
     const o = hardware.objects.get(name);
@@ -746,9 +752,42 @@ function travelTo(p: Probe) {
     o.visible = name === pick;
     if (name === pick) {o.matrix.copy(hardware.placementMatrix({name, url: '', lat: p.lat, lon: p.lon, heading: 40})); o.updateMatrixWorld(true);}
   }
+}
+
+/** Bring the terrain and lighting up at a world mission, sunlit. Returns nothing; callers set the camera and buggy. */
+function anchorAtSite(p: Probe) {
+  const t = sunUpTime(p.lat, p.lon, simTime);
+  mission.state.t = t; simTime = t;
+  reanchorTo(p.lat, p.lon);
+  showSiteModel(p);
+}
+
+function travelTo(p: Probe) {
+  anchorAtSite(p);
   Object.assign(buggy, {lat: p.lat - 18 / (R_MOON * DEG), lon: p.lon, heading: 0, speed: 0, slip: 0, altitude: 0, vVert: 0, roll: 0, rollRate: 0, flipped: false, airborne: false});
+  inspecting = false; buggyHomeAnchor = null;
   if (!driving) setDriving(true);
   viewName = 'rover'; rig = makeRig(viewName); cameraSelect.value = viewName;
+}
+
+/** Inspect a world mission with the CAMERA only: re-anchor there so the terrain actually renders (the old bird's-eye
+ * looked broken because it hovered over an un-anchored spot), light it, stand its model, and frame it from a low
+ * bird's-eye you can drag to look around. The buggy is left where it is; resuming the drive re-anchors back to it. */
+function inspectSite(p: Probe) {
+  if (!inspecting) buggyHomeAnchor = {lat: buggy.lat, lon: buggy.lon};
+  anchorAtSite(p);
+  inspecting = true;
+  const cam = offset({lat: p.lat, lon: p.lon}, 46, -46);
+  rig = groundRig(cam.lat, cam.lon, 22, 315, -18, 60);
+  viewName = 'site'; cameraSelect.value = 'site';
+}
+
+/** Put the buggy back in control of the world: if a camera-only inspection re-anchored elsewhere, return the terrain to
+ * wherever the buggy actually is before driving resumes, so it never drives onto a stale (black) anchor. */
+function resumeFromInspect() {
+  if (!inspecting) return;
+  inspecting = false;
+  if (buggyHomeAnchor) {reanchorTo(buggyHomeAnchor.lat, buggyHomeAnchor.lon); buggyHomeAnchor = null;}
 }
 function updateTargetHud() {
   if (!target) {targetHud.hidden = true; return;}
@@ -768,20 +807,29 @@ lunarMap.onSelect = p => {
   const actual = HADLEY_HARDWARE.find(h => h.name === p.id);
   if (p.id === 'kestrel' && mission.launched) {viewName = 'chase'; rig = makeRig(viewName); cameraSelect.value = viewName; return;}
   if (actual) {
+    // Hadley hardware sits on the current anchor already: a close ground view, no re-anchor, no buggy move.
     const d = actual.name === 'kestrel' ? 16 : actual.name === 'apollo15-lm' ? 13 : 6;
     const at = offset(actual, d, -d);
     rig = groundRig(at.lat, at.lon, 1.7, 315, actual.name === 'kestrel' ? 6 : 0, 55);
-  } else {
-    rig = groundRig(p.lat, p.lon, 5000, 0, -70, 65);
+    viewName = actual.name === 'kestrel' ? 'pad' : 'apollo';
+    cameraSelect.value = viewName;
+    return;
   }
-  viewName = actual?.name === 'kestrel' ? 'pad' : actual ? 'apollo' : 'hover';
-  cameraSelect.value = viewName;
+  const probe = p.id.startsWith('probe-') ? PROBES.find(pr => pr.id === p.id.slice(6)) : null;
+  if (probe) {inspectSite(probe); return;} // a world mission: camera-only bird's-eye on re-anchored, lit terrain
+  // Any other far marker (a named landform): re-anchor there so the bird's-eye renders real terrain, camera only.
+  if (!inspecting) buggyHomeAnchor = {lat: buggy.lat, lon: buggy.lon};
+  const t = sunUpTime(p.lat, p.lon, simTime); mission.state.t = t; simTime = t;
+  reanchorTo(p.lat, p.lon); inspecting = true;
+  rig = groundRig(p.lat, p.lon, 400, 0, -55, 72);
+  viewName = 'hover'; cameraSelect.value = 'hover';
 };
 controls.querySelector<HTMLSelectElement>('#inspect-equipment')!.onchange = e => {
+  // Inspect moves the CAMERA only (never the buggy). Set target + GO is the path that drives the buggy to a mission.
   const value = (e.target as HTMLSelectElement).value;
   if (value.startsWith('probe:')) {
     const probe = PROBES.find(p => p.id === value.slice(6));
-    if (probe) {setTarget(probe); travelTo(probe);}
+    if (probe) inspectSite(probe);
   } else {
     const p = markers.find(m => m.id === value);
     if (p) lunarMap.onSelect(p);
@@ -1274,6 +1322,9 @@ function tick(realDt: number, now: number, render = true) {
       turbo: held.has('shift'),
       lift: (held.has('r') ? 1 : 0) - (held.has('f') ? 1 : 0),
     };
+    // While a camera-only inspection has the terrain anchored at another site, freeze buggy input so keys never drive it
+    // across a stale anchor. Resuming the drive (Drive button / rover view) re-anchors back to it first.
+    if (inspecting) drive = NO_DRIVE;
     // Auto-drive toward the target's great-circle bearing. A crossing is really a low cruise: it lifts into a coasting
     // skim (vacuum has no drag, so speed holds) and only pulses thrust to hold heading, altitude and cruise speed —
     // otherwise rough ground would launch and hard-land it to a crawl. A drive key hands control back; arrival stops it.
@@ -1302,8 +1353,10 @@ function tick(realDt: number, now: number, render = true) {
     wheelSpin += (buggy.speed * total) / 0.52; // roll the wheels (tyre radius 0.52 m)
     driveEffects(Math.min(realDt, 0.05));
     // Follow the buggy across the Moon: light re-anchor (no shadow-field rebuild) once it roams from the tangent origin.
+    // Suppressed while inspecting, when the terrain is deliberately anchored at another site and the buggy is frozen far
+    // away — otherwise this would snap the anchor straight back to the buggy and undo the inspection view.
     const off = terrain.toLocal(buggy.lat, buggy.lon);
-    if (Math.hypot(off.x, off.y) > 150_000) reanchorTo(buggy.lat, buggy.lon, false);
+    if (!inspecting && Math.hypot(off.x, off.y) > 150_000) reanchorTo(buggy.lat, buggy.lon, false);
   }
   if (driving) warp = driveWarp; // driving shares the same warp, capped so the terrain clipmap keeps pace
   if (autopilotOn) warp = stepAutopilot();
