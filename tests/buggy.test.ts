@@ -150,3 +150,12 @@ test('longitude wraps cleanly across the antimeridian on a long drive', () => {
   expect(b.lon).toBeGreaterThan(-180);
   expect(Number.isNaN(b.lat)).toBe(false);
 });
+
+test('driving over a pole continues onto the far side instead of hitting a wall', () => {
+  const b = new Buggy(89.9, 0, 0); // just short of the north pole, heading north
+  for (let i = 0; i < 3000; i++) b.step({throttle: 1, brake: 0, steer: 0, turbo: false, lift: 0}, 1 / 30, flat);
+  expect(b.lat).toBeLessThan(90);
+  expect(b.lat).toBeGreaterThan(80);      // came back down the far side, not pinned at a clamp
+  expect(Math.abs(b.lon)).toBeGreaterThan(90); // and half the globe round in longitude
+  expect(Number.isNaN(b.lat)).toBe(false);
+});

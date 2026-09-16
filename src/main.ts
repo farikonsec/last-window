@@ -394,7 +394,12 @@ function placeBuggy() {
   // real rollover is underway, lift by the FULL rendered roll (terrain tilt included) plus a margin, so no part of a
   // capsized buggy can sink through sloped or cratered ground.
   const rolledOver = buggy.flipped || Math.abs(buggy.roll) > 0.3;
-  const contactLift = buggy.airborne ? 0 : buggyContactLift(rolledOver ? Math.abs(roll) : Math.abs(buggy.roll), terrainRise) + (rolledOver ? 0.12 : 0);
+  // The physics ground (terrain.height) omits the render shader's fine regolith relief (~0.13 m of per-vertex height
+  // noise the sim never sees), so without a guard the visible soil rides above the wheels and buries the hull. Sit the
+  // grounded buggy a wheel's-worth of that relief proud of the sampled height so it rides on the regolith, never in it.
+  const REGOLITH_RIDE = 0.14;
+  const contactLift = buggy.airborne ? 0
+    : buggyContactLift(rolledOver ? Math.abs(roll) : Math.abs(buggy.roll), terrainRise) + (rolledOver ? 0.12 : REGOLITH_RIDE);
   holder.matrix.copy(hardware.placementMatrix({
     name: 'buggy', url: '', lat: buggy.lat, lon: buggy.lon, heading: buggy.heading * 180 / Math.PI,
     lift: buggy.altitude + contactLift, pitch, roll,
@@ -712,16 +717,19 @@ function sunElevation(lat: number, lon: number, t: number) {
   return Math.asin(Math.max(-1, Math.min(1, dot(up, unit(bodiesAt(sky, t).sun))))) * 180 / Math.PI;
 }
 
-/** A sim time at which the Sun rakes the given site at a photogenic elevation, so a visited probe is lit, not in night.
- * Sampled across a full lunar day at a quarter-day step, since that is what carries the site under the Sun. */
+/** A sim time at which the Sun lights the given site well: high enough to be genuinely bright (short, readable shadows),
+ * not so high it flattens the relief. Sampled across a full lunar day at a quarter-day step, since that is what carries
+ * the site under the Sun. Picks the sample whose elevation is closest to a bright ~52 deg target rather than the first
+ * raking angle, so every visited site — and every capture — arrives sunlit instead of dim. */
 function sunUpTime(lat: number, lon: number, from: number) {
-  const DAY = 86_400;
-  let best = from, bestEl = -Infinity;
+  const DAY = 86_400, TARGET = 52;
+  let best = from, bestScore = Infinity;
   for (let k = 0; k <= 120; k++) {
     const t = from + k * DAY * 0.25;
     const el = sunElevation(lat, lon, t);
-    if (el > 18 && el < 50) return t;
-    if (el > bestEl) {bestEl = el; best = t;}
+    if (el <= 6) continue; // below the horizon or barely up: never a bright arrival
+    const score = Math.abs(el - TARGET);
+    if (score < bestScore) {bestScore = score; best = t;}
   }
   return best;
 }

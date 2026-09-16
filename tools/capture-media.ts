@@ -31,8 +31,12 @@ function clipExpr(setup: string, frames: number) {
   const canvas = M.debug.viewer.renderer.domElement;
   const rec = new MediaRecorder(canvas.captureStream(30), {mimeType: 'video/webm;codecs=vp9', videoBitsPerSecond: 4e6});
   const chunks = []; rec.ondataavailable = e => chunks.push(e.data);
-  rec.start();
   ${setup}
+  // Warm the canvas at the final lighting before recording: setup may jump the clock (sun angle) or re-anchor, and the
+  // headless sim steps don't repaint, so the first painted frames would otherwise flash the old dark scene. Repaint at
+  // the fixed viewport size (no resize mid-stream, which corrupts the recorded resolution).
+  for (let w = 0; w < 12; w++) await new Promise(r => requestAnimationFrame(r));
+  rec.start();
   for (let i = 0; i < ${frames}; i++) { step(i); M.run(1, 1/30, true); await new Promise(r => requestAnimationFrame(r)); }
   await new Promise(r => { rec.onstop = r; rec.stop(); });
   const u8 = new Uint8Array(await new Blob(chunks, {type: 'video/webm'}).arrayBuffer());
@@ -82,6 +86,11 @@ const SHOTS: Shot[] = [
     setup: "M.setView('argo');M.debug.mission.attitudeMode='dock';const step=i=>{M.debug.mission.translation=M.debug.mission.translationCue.keys;};"},
   {name: 'liftoff', url: '?scenario=window-open&view=chase&hud=1', clip: {frames: 150, fps: 12, width: 900},
     setup: "M.debug.mission.waitForWindow();M.debug.mission.advance(30,1);M.debug.mission.assisted=true;M.debug.mission.launch();const step=i=>{};"},
+  // Hero: the buggy driving across bright, high-sun Hadley. The drive scenario slaves simTime to mission.state.t each
+  // frame, so the Sun is raised by setting that clock (t=280800 -> ~52 deg, the game at its brightest, vs. the dim
+  // raking-angle orbit still this replaces). Grounded cruise with a bank, so it lays tracks instead of launching.
+  {name: 'hero', url: '?scenario=drive&hud=0', clip: {frames: 120, fps: 12, width: 900},
+    setup: "M.debug.mission.state.t=280800;if(M.debug.shadows&&M.debug.shadows.reanchor)M.debug.shadows.reanchor(true);M.run(30,1/30,false);M.key('w',true);const step=i=>{if(i===55)M.key('d',true);if(i===80)M.key('d',false);};"},
 ];
 
 const only = process.argv.slice(2);

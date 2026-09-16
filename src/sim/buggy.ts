@@ -65,6 +65,8 @@ export const BUGGY = {
   flightStabilize: 10,
   flightDamping: 6,
   rightingPower: 5,
+  /** Seconds on its side before the crew simply heave it upright, so a rollover can never strand you. */
+  selfRightAfter: 4,
   /** Render collision envelope measured from buggy.glb, excluding the hidden exhaust plumes. */
   hullHalfWidth: 2.35,
   hullRoofHeight: 2.65,
@@ -156,7 +158,8 @@ export class Buggy {
     this.flightThrusting = flightFiring || righting;
     // Firing any thruster (ground boost or flight) burns the reserve; otherwise it recharges, in the air too, so
     // gliding refills for the next burn. Only an out-of-control flip pauses the recharge.
-    const reserveRate = boosting || this.flightThrusting ? -BUGGY.turboDrain : this.flipped ? 0 : BUGGY.turboCharge;
+    // The reserve keeps charging even while over, or an empty reserve would leave the righting jets dead forever.
+    const reserveRate = boosting || this.flightThrusting ? -BUGGY.turboDrain : BUGGY.turboCharge * (this.flipped ? 0.6 : 1);
     this.turbo = clamp(this.turbo + reserveRate * dt, 0, 1);
 
     let turn = 0;
@@ -204,8 +207,14 @@ export class Buggy {
 
     // Advance across the surface: forward along the heading, slip sideways (heading + 90°).
     const forward = this.offset(this.speed * dt), side = this.offset(this.slip * dt, this.heading + Math.PI / 2);
-    this.lat = clamp(forward.lat + (side.lat - this.lat), -89, 89);
-    this.lon = (((forward.lon + (side.lon - this.lon)) + 540) % 360) - 180;
+    let lat = forward.lat + (side.lat - this.lat);
+    let lon = forward.lon + (side.lon - this.lon);
+    // Drive over a pole rather than into a wall: past 90° you come down the far side, half the globe round, facing back.
+    if (lat > 90) {lat = 180 - lat; lon += 180; this.heading += Math.PI;}
+    else if (lat < -90) {lat = -180 - lat; lon += 180; this.heading += Math.PI;}
+    this.lat = lat;
+    this.lon = ((lon + 540) % 360) - 180;
+    this.heading = (this.heading + Math.PI * 2) % (Math.PI * 2);
     const groundAfter = ground.height(this.lat, this.lon);
 
     if (this.airborne) {
@@ -245,11 +254,17 @@ export class Buggy {
    */
   private rollDynamics(dt: number, turn: number, controls: BuggyControls) {
     if (this.flipped) {
-      // Solid contact holds it on its side. It stays there until R fires the roof/side righting jets; those apply
-      // angular acceleration rather than the old buoyant-looking interpolation through the lunar surface.
-      if ((controls.lift ?? 0) > 0 && this.turbo > 0) {
-        const before = Math.sign(this.roll);
-        this.rollRate += -before * BUGGY.rightingPower * dt;
+      // Airborne while over: it is tumbling, not resting on anything, so let the flight stabiliser have it back rather
+      // than pinning it on its side in mid-air.
+      if (this.airborne) {this.flipped = false; this.rightTimer = 0; return;}
+      // Solid contact holds it on its side. R fires the righting jets; they apply angular acceleration. The crew can
+      // always get it back: the reserve keeps charging while over (see step), and if the driver does nothing for a
+      // while they heave it upright by hand, so a rollover is never a dead end.
+      this.rightTimer += dt;
+      const jets = (controls.lift ?? 0) > 0 && this.turbo > 0;
+      if (jets || this.rightTimer > BUGGY.selfRightAfter) {
+        const before = Math.sign(this.roll || 1);
+        this.rollRate += -before * BUGGY.rightingPower * (jets ? 1 : 0.55) * dt;
         this.rollRate *= Math.max(0, 1 - 1.2 * dt);
         this.roll += this.rollRate * dt;
         if (Math.sign(this.roll) !== before || Math.abs(this.roll) < 0.06) {

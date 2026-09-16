@@ -1,7 +1,7 @@
 # LAST WINDOW · Moon ascent
 
 <p align="center">
-  <a href="https://farikonsec.github.io/last-window/"><img src="docs/media/hero.webp" alt="The KESTREL ascent stage in low lunar orbit above the Moon" width="100%"></a>
+  <a href="https://farikonsec.github.io/last-window/"><img src="docs/media/hero.gif" alt="The crew buggy driving across sunlit lunar regolith at Hadley" width="100%"></a>
 </p>
 
 <p align="center"><b><a href="https://farikonsec.github.io/last-window/">▶ Play in your browser</a></b> · desktop, iPhone and Android · no install</p>

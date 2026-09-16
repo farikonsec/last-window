@@ -93,6 +93,7 @@ export class LunarTerrain {
   anchorLon: number;
   private readonly metresPerDegLat = R_MOON * DEG;
   private metresPerDegLon: number;
+  private basis!: {u: V3; e: V3; n: V3};
   private readonly regionBounds: {south: number; east: number};
   /** Flattened pads: local x, y (m), radius (m) and blend width. Heights inside are held level. */
   private pads: {x: number; y: number; radius: number; blend: number; height: number}[] = [];
@@ -104,24 +105,54 @@ export class LunarTerrain {
     this.anchorLon = options.anchorLon;
     this.metresPerDegLon = R_MOON * DEG * Math.cos(options.anchorLat * DEG);
     this.regionBounds = {south: this.region.north - this.region.height / this.region.ppd, east: this.region.west + this.region.width / this.region.ppd};
+    this.setBasis();
   }
 
-  /** Move the tangent-plane origin to a new point so the clipmap can render anywhere on the globe (the projection is
-   * only accurate near its anchor, so the caller re-anchors as the camera roams). Longitude scale follows the anchor. */
+  /** Move the tangent-plane origin so the clipmap can render anywhere on the globe. */
   reanchor(latDeg: number, lonDeg: number) {
     this.anchorLat = latDeg;
     this.anchorLon = lonDeg;
     this.metresPerDegLon = R_MOON * DEG * Math.cos(latDeg * DEG);
+    this.setBasis();
   }
 
+  /** East/north/up unit vectors at the anchor, for the tangent projection. Falls back sanely exactly on a pole. */
+  private setBasis() {
+    const la = this.anchorLat * DEG, lo = this.anchorLon * DEG;
+    const u: V3 = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)];
+    const ex = -u[1], ey = u[0], en = Math.hypot(ex, ey);
+    const e: V3 = en > 1e-9 ? [ex / en, ey / en, 0] : [1, 0, 0];
+    this.basis = {u, e, n: [u[1] * e[2] - u[2] * e[1], u[2] * e[0] - u[0] * e[2], u[0] * e[1] - u[1] * e[0]] as V3};
+  }
+
+  /**
+   * Local metres around the anchor, as an azimuthal-equidistant tangent projection: distance and bearing from the
+   * anchor are exact, and it stays well-behaved at any latitude. The old lat/lon scaling collapsed as cos(lat) went to
+   * zero, which is why the polar surface rendered black and the clipmap broke there.
+   */
   toLocal(latDeg: number, lonDeg: number) {
-    // Longitude difference wrapped to [-180, 180] so a clipmap that has re-anchored near the antimeridian is continuous.
-    const dLon = (((lonDeg - this.anchorLon + 540) % 360) - 180);
-    return {x: dLon * this.metresPerDegLon, y: (latDeg - this.anchorLat) * this.metresPerDegLat};
+    const la = latDeg * DEG, lo = lonDeg * DEG;
+    const p: V3 = [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)];
+    const {u, e, n} = this.basis;
+    const c = Math.acos(Math.max(-1, Math.min(1, p[0] * u[0] + p[1] * u[1] + p[2] * u[2])));
+    const pe = p[0] * e[0] + p[1] * e[1] + p[2] * e[2];
+    const pn = p[0] * n[0] + p[1] * n[1] + p[2] * n[2];
+    const h = Math.hypot(pe, pn);
+    if (h < 1e-12) return {x: 0, y: 0};
+    const s = (R_MOON * c) / h;
+    return {x: pe * s, y: pn * s};
   }
 
   fromLocal(x: number, y: number) {
-    return {lat: this.anchorLat + y / this.metresPerDegLat, lon: this.anchorLon + x / this.metresPerDegLon};
+    const d = Math.hypot(x, y);
+    if (d < 1e-9) return {lat: this.anchorLat, lon: this.anchorLon};
+    const c = d / R_MOON, sc = Math.sin(c), cc = Math.cos(c), dx = x / d, dy = y / d;
+    const {u, e, n} = this.basis;
+    const p: V3 = [0, 1, 2].map(i => u[i] * cc + (e[i] * dx + n[i] * dy) * sc) as V3;
+    return {
+      lat: Math.asin(Math.max(-1, Math.min(1, p[2]))) / DEG,
+      lon: Math.atan2(p[1], p[0]) / DEG,
+    };
   }
 
   /** Surveyed elevation only (no procedural detail), metres. */
